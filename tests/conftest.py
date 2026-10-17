@@ -29,3 +29,27 @@ def photo_dir(tmp_path):
 @pytest.fixture
 def keep_dir(tmp_path):
     return tmp_path / "keep"
+
+
+def set_raw_fields(path: Path, desc=None, comment=None, iptc=None, xmp=None, iptc_encoding="utf-8"):
+    """Write caption fields independently (to create disagreeing or legacy-encoded files)."""
+    import pyexiv2
+
+    with open(path, "rb") as f:
+        img = pyexiv2.ImageData(f.read())
+    try:
+        exif = {}
+        if desc is not None:
+            exif["Exif.Image.ImageDescription"] = desc
+        if comment is not None:
+            exif["Exif.Photo.UserComment"] = "charset=Ascii " + comment
+        if exif:
+            img.modify_exif(exif)
+        if iptc is not None:
+            img.modify_iptc({"Iptc.Application2.Caption": iptc}, encoding=iptc_encoding)
+        if xmp is not None:
+            img.modify_xmp({"Xmp.dc.description": {'lang="x-default"': xmp}})
+        data = img.get_bytes()
+    finally:
+        img.close()
+    path.write_bytes(data)

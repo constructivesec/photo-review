@@ -47,13 +47,30 @@ For standalone builds (`PhotoReview.exe` / `PhotoReview.app`), see [BUILD.md](BU
 
 ### Captions
 
-Type up to 50 characters in the **Caption** box and press **Submit** (or Enter).
-The app saves a **copy** of the photo with a 50-pixel black bar along the bottom
-containing your caption in white. The original photo is never changed.
+The **Caption** box shows the photo's existing caption, if it has one. Type or
+change a caption, then press **Submit** (or Enter), or simply move on to another
+photo: the caption is saved automatically. Saving a caption does two things:
 
+1. **Stores it inside the photo** in the four standard caption fields (EXIF
+   ImageDescription, EXIF UserComment, IPTC Caption-Abstract, XMP dc:description),
+   so Lightroom, Apple Photos, Google Photos and Windows can see it. Only the
+   metadata changes; the image itself is never re-encoded. HEIC/HEIF photos are
+   not changed (the caption goes only into their captioned copy).
+2. **Creates a captioned copy** of the photo with a 50-pixel black bar along the
+   bottom containing the caption in white. Long captions wrap to two lines, then
+   are shortened with "…" in the bar (the full text is still stored in the copy's metadata).
+
+- Captions can be up to 2000 bytes (about 2000 letters; accented letters and emoji
+  use more than one).
+- To remove a caption, clear the box and move on (or press Submit). This removes it
+  from the photo's caption fields and deletes the captioned copy.
+- If the photo's caption fields disagree, the box shows the IPTC caption and an amber
+  "Fields differ" notice appears (hover over it for details). Submit makes them all match.
+- Undo reverses a caption change, restoring the photo exactly as it was. If you have
+  typed but not yet saved, the first Undo just discards your typing.
 - While the caption box is active, the `Y`/`N`/arrow keys type text instead of
   acting on photos. Press `Esc` or click the photo to leave the box.
-- Submitting again for the same photo replaces the captioned copy (bars never stack).
+- Saving again for the same photo replaces the captioned copy (bars never stack).
 - When you press YES on a photo, its captioned copy moves to the Keep folder too.
 
 **Captioned copy naming rule:** `<name>_captioned.<ext>` in the same folder as
@@ -66,8 +83,13 @@ same captioned filename and the newest caption wins.)
 
 ## Details and safety
 
-- Originals are never deleted or overwritten. The only file changes are: move
-  (YES), rename (NO), create/replace a captioned copy, and undoing those.
+- Originals are never deleted, and their image data is never changed. The only file
+  changes are: move (YES), rename (NO), updating caption metadata, creating,
+  replacing or removing a captioned copy, and undoing those.
+- Caption metadata is written to a temporary file, checked (image data and all other
+  metadata unchanged, caption readable), then swapped in place of the original. The
+  file's modified date is kept; its creation date becomes the save time, and on macOS
+  Finder tags are not kept. Photos with damaged metadata are not modified.
 - If a filename is already taken, a number is added: `name_1.jpg`, `name_2.jpg`
   (for NO: `name_1_NO.jpg`).
 - Pressing NO on a photo already marked NO does nothing except move to the next photo.
@@ -91,6 +113,7 @@ Project layout:
 |---|---|
 | `photo_review/fileops.py` | Scanning, naming rules, collision-safe move/rename |
 | `photo_review/imaging.py` | Decoding, EXIF dates, caption rendering |
+| `photo_review/metadata.py` | Caption metadata read/reconcile/write (see `docs/CAPTION_METADATA_SPEC.md`) |
 | `photo_review/session.py` | Working list, sort/filter, YES/NO/caption, undo (no Qt) |
 | `photo_review/config.py` | JSON settings in the OS config folder (`platformdirs`) |
 | `photo_review/loader.py` | Background decoding and EXIF date scanning |
@@ -98,3 +121,5 @@ Project layout:
 
 The bundled font is DejaVu Sans (`photo_review/resources/fonts`, Bitstream Vera
 license, see `LICENSE-DejaVu.txt`), so captions render identically on every OS.
+Caption metadata uses [pyexiv2](https://github.com/LeoHsiao1/pyexiv2) (Exiv2, GPL-3.0).
+The ExifTool interoperability tests run only when `exiftool` is installed.

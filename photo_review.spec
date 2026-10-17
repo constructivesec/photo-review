@@ -10,8 +10,8 @@ datas = [("photo_review/resources", "photo_review/resources")]
 binaries = []
 hiddenimports = []
 
-# pillow-heif ships native libheif/libde265 libraries that must travel with the app.
-for pkg in ("pillow_heif",):
+# pillow-heif (libheif/libde265) and pyexiv2 (libexiv2) ship native libraries that must travel with the app.
+for pkg in ("pillow_heif", "pyexiv2"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

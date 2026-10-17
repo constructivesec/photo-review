@@ -1,6 +1,6 @@
 # Caption Metadata: Specification
 
-Status: Draft for review
+Status: Approved and implemented (decisions in section 10)
 Extends: Photo Review App Specification, sections 6 (Captions) and 7 (Non-Functional Requirements)
 
 ## 1. Purpose
@@ -75,28 +75,43 @@ and XMP. This spec follows the fixed rule requested (IPTC wins) and ignores the 
 - When a photo is displayed, the box is filled with the chosen caption, or cleared if there is none.
   This replaces the current rule "the caption input clears whenever the displayed photo changes."
 - If metadata arrives after the user has started typing for this photo, the user's text is kept.
-- Captions longer than the box limit: see open decision D3.
+- The box accepts up to 2000 bytes of UTF-8 (the IPTC limit). The counter shows the space left.
+  This replaces the 50-character limit in section 6 of the main spec.
 
 ## 4. Writing
 
 ### 4.1 Trigger
-- Pressing **Submit** (or Enter) with non-blank text writes the caption to all applicable fields of the
-  **original photo** and creates the captioned copy as it does today (see D1 and D2).
-- Metadata is written when the text differs from the displayed caption **or** the fields currently disagree
-  (Submit then also syncs them). If all fields already hold this exact text, the original file is not modified.
-- Submitting empty text is still an error ("Type a caption first."). Clearing captions is out of scope (D4).
-- Navigating away with unsubmitted edits discards them and shows "Caption not saved" in the status bar (D5).
+A caption is saved in two situations:
+1. **Submit** (button or Enter): always saves the box's text. If the fields disagree, this also syncs them.
+2. **Leaving the photo** with an edited or cleared caption: Next, Back, YES, NO, changing the sort,
+   toggling Hide NO, opening another folder, or closing the app. The caption is saved first, then the
+   action runs (so on YES, the updated captioned copy moves to Keep with the photo).
+   "Edited" means the trimmed box text differs from the photo's stored caption. A caption that was only
+   displayed is never written back.
+
+What a save does:
+- **Non-blank text**: writes all applicable fields of the original photo, and creates or replaces the captioned copy.
+- **Blank text (cleared box)**: removes the caption from all four fields and deletes the captioned copy.
+  Submit on an empty box for a photo that has no caption is an error ("Type a caption first.").
+- If every field already holds exactly this text, the original file is not modified.
+- If saving fails while leaving a photo, the move still happens and the status bar shows
+  "Caption not saved: <reason>".
+- **Undo button with an unsaved edit**: the first press discards the edit and restores the stored caption
+  in the box. The next press undoes the last saved action as usual.
 
 ### 4.2 What is written
 | Field | Value written |
 |---|---|
 | F1 | Caption as UTF-8, NUL-terminated (the de facto practice used by ExifTool and Windows). |
 | F2 | `ASCII\0\0\0` + text if the caption is pure ASCII. Otherwise `UNICODE\0` + UTF-16 in the EXIF block's byte order, no BOM. |
-| F3 | Caption as UTF-8. Set 1:90 to `ESC % G`. If the UTF-8 form is longer than 2000 bytes, refuse (cannot happen with the 50-character limit). |
+| F3 | Caption as UTF-8. Set 1:90 to `ESC % G`. If the UTF-8 form is longer than 2000 bytes, refuse (the caption box prevents this). |
 | F4 | Set the `x-default` alternative. Other language alternatives are left as they are. Create the `rdf:Alt` structure if missing. |
 | Mirrors | If XMP already contains `tiff:ImageDescription` or `exif:UserComment`, set them to the same text. Do not add them if absent. |
 
-- HEIC/HEIF: there is no IPTC block, so F3 is not written. See D2 for whether HEIC originals are written at all.
+- UserComment is written as UTF-16 bytes by the app itself rather than by Exiv2's character conversion, which
+  is platform-dependent and fails on emoji. (Exiv2 writes a same-length ASCII placeholder, which is then
+  replaced byte-for-byte; for PNG the chunk CRC is recomputed.)
+- HEIC/HEIF originals are read-only (D2): the caption goes only into the captioned JPEG copy.
 - Missing blocks (no EXIF, no IPTC, no XMP) are created.
 - After writing IPTC in a JPEG, update the IPTC digest (8BIM 0x0425) to the MD5 of the new IPTC block
   if a digest resource exists, so Photoshop and MWG-aware tools treat IPTC and XMP as in sync.
@@ -106,19 +121,24 @@ and XMP. This spec follows the fixed rule requested (IPTC wins) and ignores the 
   and after. For PNG, all `IDAT` chunks must be byte-identical.
 - Every other metadata field, segment, and chunk is preserved, including MakerNotes (whose internal
   offsets must remain valid), ICC profiles, thumbnails, GPS, and ExtendedXMP.
-- The file's modified time is restored after writing, so "Date modified" sorting and backups are not disturbed.
-  (The created time is not changed by an in-place rewrite on Windows or macOS.)
+- The file's modified time and permissions are restored after writing, so "Date modified" sorting and
+  backups are not disturbed.
+- Because the file is replaced atomically (4.4), its **creation date** becomes the save time, and on macOS
+  Finder tags and other extended attributes are not carried over. This is the same trade-off as ExifTool's
+  default mode, and is accepted in exchange for never leaving a half-written original.
 
 ### 4.4 Safe write procedure
 1. Read the original file into memory.
 2. Apply the metadata changes in memory.
 3. Write the result to a temp file in the same folder (hidden name, non-photo extension, for example
    `.~meta_<random>.tmp`), so the final replace stays on one volume.
-4. Verify the temp file: it decodes as an image, its pixel data is unchanged (4.3), and re-reading
+4. Verify the new bytes before writing them: the image still decodes, its pixel data is unchanged (4.3),
+   every other EXIF, GPS, IPTC and XMP value and the ICC profile are unchanged, and re-reading
    F1 to F4 returns the new caption.
 5. Atomically replace the original with the temp file (`os.replace`), then restore the original modified time.
 6. On any failure: delete the temp file, leave the original untouched, and show an error.
-   If the existing metadata cannot be parsed, refuse to write rather than risk damaging the file.
+   If the existing metadata cannot be parsed (for example, corrupt EXIF), refuse to write rather than
+   risk losing it. Exiv2 silently drops corrupt EXIF, so this check is done before calling it.
 
 Errors to report clearly: read-only file, file locked by another program, permission denied, network share
 disconnected, file changed or missing since it was displayed.
@@ -126,6 +146,9 @@ disconnected, file changed or missing since it was displayed.
 ### 4.5 Captioned copy
 - The `_captioned` copy carries the same caption in F1 to F4. (HEIC originals produce a JPEG copy, which
   does support IPTC, so all four fields are written there.)
+- Caption bar rendering for long captions: one line, shrinking from 32 px to 14 px; then two lines,
+  from 20 px down to 10 px; then two lines with the second truncated with "…". The bar stays exactly
+  50 px high. The metadata always holds the full text.
 - All other metadata rules from section 6 of the main spec still apply (orientation applied and tag removed,
   other EXIF preserved).
 
@@ -150,61 +173,67 @@ disconnected, file changed or missing since it was displayed.
 - **Section 7 of the main spec** ("Never delete or overwrite originals") is amended to:
   "The only file mutations are: move (YES), rename (NO), create or replace a captioned copy,
   **update caption metadata in an original (pixel data never changes)**, and Undo reversals."
-- **Character limit**: the 50-character limit continues to apply to new or edited captions.
+- **Length limit**: 2000 bytes of UTF-8 for metadata and the box. The bar shows as much as fits (4.5).
 
 ## 7. User interface changes
-- Caption box: pre-filled per 3.5.
-- Amber "fields disagree" notice (3.4) next to the remaining-character count, hidden otherwise.
-- Submit button tooltip: "Save this caption into the photo and create a captioned copy."
-- Status messages: "Caption saved to IMG_001.jpg", "Caption already up to date", plus errors from 4.4.
-- HEIC (if D2 is read-only): status "Caption saved to the captioned copy only. HEIC originals are not modified."
+- Caption box: pre-filled per 3.5; it keeps the text after Submit.
+- Amber "⚠ Fields differ" notice (3.4) next to the space-left counter, hidden otherwise. Its tooltip
+  names the field being shown and lists every field's value.
+- Submit button tooltip: "Save the caption into the photo and create the captioned copy."
+- Status messages: "Caption saved to IMG_001.jpg; created IMG_001_captioned.jpg", "Caption removed
+  from ...", "Caption already up to date", "Caption edit discarded", plus errors from 4.4.
+- HEIC: "HEIC original not changed; created IMG_001_captioned.jpg".
 
-## 8. Implementation guidance
+## 8. Implementation
 
-### 8.1 Library choice
-| Option | Pros | Cons |
-|---|---|---|
-| **pyexiv2** (Exiv2 binding), recommended | Handles EXIF, IPTC, and XMP in JPEG and PNG correctly, including MakerNote offsets and IPTC charset. Can work on in-memory bytes (`pyexiv2.ImageData`), which also avoids Exiv2's known problems with non-ASCII paths on Windows. | GPL-3.0 license: acceptable for internal use, needs legal review before distributing outside the company. Adds a native library to the PyInstaller bundle. Exiv2 cannot write HEIC. Verify wheels exist for the target Python version on Windows x64 and macOS arm64/x86_64. |
-| ExifTool (bundled executable) | The reference implementation. Writes HEIC. | Ships a Perl runtime (large, Windows) or depends on system Perl (macOS). Runs as a subprocess. |
-| In-house segment writer | No new dependencies or licensing questions. | Writing EXIF without breaking MakerNotes is difficult and risky. Significant testing burden. |
-
-HEIC reading: use pillow-heif (already a dependency), which exposes the EXIF and XMP items.
+### 8.1 Libraries
+- **pyexiv2** (Exiv2 binding, GPL-3.0; acceptable, this is a personal project) reads IPTC and XMP and writes
+  all four fields. It is always used on in-memory bytes (`pyexiv2.ImageData`), which avoids Exiv2's
+  problems with non-ASCII paths on Windows. Calls are serialized with a lock because Exiv2's XMP toolkit
+  is not guaranteed to be thread-safe.
+- **Pillow / pillow-heif** read the EXIF fields (raw bytes, so decoding follows 3.2), including from HEIC.
+- Exiv2 cannot write HEIC, hence D2.
 
 ### 8.2 Code structure
-- New module `photo_review/metadata.py` with no Qt dependency:
-  - `read_caption_fields(path) -> CaptionFields` (four raw normalized values plus any read errors).
-  - `choose_caption(fields) -> tuple[str, str | None, bool]` (text, chosen field, fields-disagree flag).
-  - `write_caption(path, text) -> None`, implementing 4.2 to 4.4; raises `FileOpError`.
-- `session.add_caption()` calls `write_caption()` on the original, then creates the copy, and records one undo entry.
-- `loader.py` returns `CaptionFields` with each decoded image.
+- `photo_review/metadata.py` (no Qt): `read_caption_fields`, `choose_caption`, `apply_caption_to_bytes`,
+  `verify_written`, `atomic_write`, `write_caption`.
+- `session.save_caption(text, photo=None)` writes the original, creates/replaces/removes the captioned copy,
+  and records one undo entry holding backups of both.
+- `loader.py` reads `CaptionFields` together with each decoded image. A caption saved while that photo is
+  still loading takes precedence over the in-flight read.
+- `imaging.create_captioned_copy` embeds the caption metadata in the copy.
 
 ## 9. Tests
-Unit tests with generated fixture files (no copyrighted samples):
-1. Reading each field alone (JPEG, PNG, HEIC where applicable) shows that value.
-2. All fields equal shows that value. All blank or placeholders (`OLYMPUS DIGITAL CAMERA`, spaces) shows an empty box.
-3. Disagreeing fields with IPTC present shows IPTC. Without IPTC, the order XMP, UserComment, ImageDescription is used.
-4. Encodings: UserComment in ASCII, UNICODE little-endian, UNICODE big-endian, and undefined prefixes;
-   IPTC with and without 1:90; non-Latin text (accents, CJK, emoji) round-trips.
-5. Writing sets all applicable fields; HEIC skips IPTC (or is refused, per D2).
-6. JPEG scan data and PNG `IDAT` are byte-identical after writing; ICC profile, GPS, and MakerNote survive
-   (compare a MakerNote tag value before and after).
-7. File modified time is unchanged after writing.
-8. Read-only file: error, original unchanged, no temp file left behind.
-9. Unparseable existing metadata: write refused, original unchanged.
-10. Undo restores the original byte-for-byte and the previous captioned-copy state.
-11. Captioned copy contains the caption in all four fields.
-12. Submitting text identical to all four fields does not modify the original.
-13. Interoperability check (manual, before release): captions written by the app appear in Lightroom Classic,
-    Apple Photos (import), Windows Explorer file properties, and ExifTool `-MWG:Description`.
+Automated (`tests/test_metadata.py`, `tests/test_session.py`, `tests/test_imaging.py`, `tests/test_ui.py`):
+1. Each field alone is read; blank files and camera placeholders give an empty box.
+2. Disagreeing fields: IPTC wins; without IPTC, the order XMP, UserComment, ImageDescription is used.
+   NFC and whitespace differences do not count as disagreement.
+3. Encodings: UserComment ASCII, UNICODE little- and big-endian (including wrong byte order),
+   undefined and JIS prefixes; legacy Latin-1 IPTC; accents, CJK and emoji round-trip.
+4. JPEG and PNG writes set all four fields; other XMP languages and keywords are kept; clearing removes them.
+5. JPEG scan data and PNG `IDAT` are byte-identical; EXIF camera tags, GPS and ICC profile survive;
+   PNG chunk CRCs stay valid.
+6. Modified time and permissions are preserved.
+7. Read-only file and damaged EXIF: refused, original unchanged, no temp file left.
+8. HEIC original never modified; its captioned JPEG copy gets all four fields.
+9. Undo restores the original byte-for-byte (and its modified time) and the previous captioned-copy state.
+10. Captions up to 2000 bytes accepted; longer refused. Two-line and truncated bar layouts stay inside the bar.
+11. UI: pre-fill, save on Next, clear on Next, save before YES, no write when unchanged, Undo discards
+    an unsaved edit, the fields-differ notice, and a save during a pending load.
+12. When ExifTool is installed: it reads all four fields and `MWG:Description`, big-endian EXIF
+    UserComment is written correctly, and the IPTC digest matches after a write.
 
-## 10. Open decisions
+Manual before release: captions appear in Lightroom Classic, Apple Photos (import), and Windows Explorer
+file properties.
 
-| # | Decision | Recommended default |
+## 10. Decisions
+
+| # | Decision | Resolution |
 |---|---|---|
-| D1 | Writing to originals changes the main spec's rule that originals are never modified. Approve the amendment in section 6? | Approve: metadata only, pixels untouched, atomic write, full undo. |
-| D2 | HEIC originals: Exiv2 cannot write HEIC. Options: (a) read-only, caption goes only to the captioned JPEG copy; (b) bundle ExifTool for HEIC writes; (c) write an XMP sidecar (`IMG_1234.xmp`, read by Lightroom but not by Apple Photos). | (a) for v1. Revisit (b) if HEIC captions matter. |
-| D3 | Existing captions longer than 50 characters. Options: (a) show the full text in the box and allow saving up to 2000 bytes, while the caption bar shrinks or truncates the text; (b) show it truncated with a warning, and Submit replaces it with the shorter text. | (a): never silently shorten existing data. The 50-character limit then applies only to the bar rendering. |
-| D4 | Clearing a caption (removing it from all fields). | Not in v1. |
-| D5 | Unsaved edits when navigating away: discard with a status message, or auto-save. | Discard with a status message: no surprise writes to originals. |
-| D6 | Should Submit always create the captioned copy, or add a "Save caption only" option (metadata without the bar)? | Add a "Also create captioned copy" checkbox, on by default, remembered in config. |
-| D7 | pyexiv2 GPL-3.0 licensing for the bundled app. | Internal distribution only; confirm with legal before any external distribution. |
+| D1 | Allow writing to originals | Yes: metadata only, image data unchanged. |
+| D2 | HEIC originals | Read-only. Caption goes only to the captioned JPEG copy. |
+| D3 | Captions longer than 50 characters | Allowed up to 2000 bytes (UTF-8). The bar wraps to two lines, then truncates. |
+| D4 | Clearing a caption | Supported: clearing the box removes the caption from all fields and deletes the captioned copy. |
+| D5 | Unsaved edits when leaving a photo | Saved automatically (4.1). |
+| D6 | Separate "save caption only" option | Not added. A save always updates both the metadata and the captioned copy. |
+| D7 | pyexiv2 GPL-3.0 licensing | Not an issue (personal project). |

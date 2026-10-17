@@ -62,6 +62,39 @@ def test_short_text_uses_max_font():
     assert font.size == imaging.FONT_MAX_SIZE and shown == "Hi"
 
 
+def test_medium_text_wraps_to_two_lines():
+    text = "Grandma and Grandpa at the lake house, summer 2019, with the whole family"
+    font, lines = imaging.layout_caption(text, 500)
+    assert len(lines) == 2 and " ".join(lines) == text
+    assert font.size <= imaging.TWO_LINE_MAX_SIZE
+    assert all(font.getlength(ln) <= 500 for ln in lines)
+
+
+def test_two_lines_stay_inside_bar():
+    im = Image.new("RGB", (400, 100), (0, 0, 255))
+    out = imaging.render_caption(im, "word " * 30)
+    px = out.load()
+    ys = [y for y in range(100, out.height) for x in range(out.width) if min(px[x, y]) > 200]
+    assert min(ys) > 100 and max(ys) < out.height - 1
+    span = white_columns(out, 100)
+    assert span[0] >= TEXT_PADDING - 2 and span[1] <= 400 - TEXT_PADDING + 2
+
+
+def test_very_long_text_truncated_on_second_line():
+    font, lines = imaging.layout_caption("long words " * 150, 400)
+    assert font.size == imaging.FONT_MIN_SIZE and len(lines) == 2
+    assert lines[1].endswith("…")
+    assert all(font.getlength(ln) <= 400 for ln in lines)
+
+
+def test_captioned_copy_has_caption_metadata(photo_dir):
+    from photo_review import metadata
+    src = make_image(photo_dir / "a.jpg")
+    out = imaging.create_captioned_copy(src, "Café 😀")
+    assert set(metadata.read_caption_fields(out).values().values()) == {"Café 😀"}
+    assert set(metadata.read_caption_fields(src).values().values()) == {""}  # original untouched
+
+
 def test_tiny_image_truncates_at_min_font():
     font, shown = imaging.fit_font("A very long caption for a tiny image", 60)
     assert font.size == imaging.FONT_MIN_SIZE
@@ -111,8 +144,8 @@ def test_caption_validation(photo_dir):
     with pytest.raises(FileOpError):
         imaging.create_captioned_copy(src, "   ")
     with pytest.raises(FileOpError):
-        imaging.create_captioned_copy(src, "x" * 51)
-    imaging.create_captioned_copy(src, "x" * 50)
+        imaging.create_captioned_copy(src, "é" * 1001)  # 2002 UTF-8 bytes
+    imaging.create_captioned_copy(src, "x" * 2000)
 
 
 def test_no_file_caption_name(photo_dir):

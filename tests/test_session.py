@@ -109,7 +109,7 @@ def test_yes_collision_in_keep(session, keep_dir):
 
 
 def test_yes_moves_captioned_copy(session, photo_dir, keep_dir):
-    session.add_caption("hi")
+    session.save_caption("hi")
     assert (photo_dir / "a_captioned.jpg").exists()
     session.mark_yes()
     assert (keep_dir / "a.jpg").exists() and (keep_dir / "a_captioned.jpg").exists()
@@ -136,7 +136,7 @@ def test_yes_failure_keeps_state(session, photo_dir, monkeypatch):
 
 def test_undo_yes_restores_file_and_position(session, photo_dir, keep_dir):
     session.next()  # b
-    session.add_caption("cap")
+    session.save_caption("cap")
     session.mark_yes()
     session.undo_stack.pop(-2)  # leave only the YES for this test
     session.undo()
@@ -164,16 +164,16 @@ def test_undo_no(session, photo_dir):
 
 
 def test_undo_caption_new_copy_deleted(session, photo_dir):
-    session.add_caption("one")
+    session.save_caption("one")
     session.undo()
     assert not (photo_dir / "a_captioned.jpg").exists()
     assert (photo_dir / "a.jpg").exists()
 
 
 def test_undo_caption_restores_previous(session, photo_dir):
-    session.add_caption("one")
+    session.save_caption("one")
     first = (photo_dir / "a_captioned.jpg").read_bytes()
-    session.add_caption("a different, longer caption")
+    session.save_caption("a different, longer caption")
     assert (photo_dir / "a_captioned.jpg").read_bytes() != first
     session.undo()
     assert (photo_dir / "a_captioned.jpg").read_bytes() == first
@@ -182,7 +182,7 @@ def test_undo_caption_restores_previous(session, photo_dir):
 def test_undo_is_unlimited_and_ordered(session, photo_dir, keep_dir):
     session.mark_no()          # a -> a_NO, on b
     session.mark_yes()         # b kept, on c
-    session.add_caption("c!")  # c captioned
+    session.save_caption("c!")  # c captioned
     session.undo(); session.undo(); session.undo()
     assert sorted(p.name for p in photo_dir.iterdir()) == ["a.jpg", "b.jpg", "c.jpg", "d.jpg"]
     assert not keep_dir.exists() or not any(keep_dir.iterdir())
@@ -271,3 +271,83 @@ def test_empty_folder(photo_dir, keep_dir):
     assert s.current is None and s.total == 0 and s.position == 0
     with pytest.raises(FileOpError):
         s.mark_yes()
+
+
+# ---------------------------------------------------------------- caption metadata
+
+from photo_review import metadata  # noqa: E402
+
+
+def caption(path):
+    return metadata.choose_caption(metadata.read_caption_fields(path)).text
+
+
+def test_save_caption_writes_metadata_and_copy(session, photo_dir):
+    r = session.save_caption("Lake day")
+    assert caption(photo_dir / "a.jpg") == "Lake day"
+    assert caption(photo_dir / "a_captioned.jpg") == "Lake day"
+    assert "a.jpg" in r.message and "a_captioned.jpg" in r.message
+
+
+def test_undo_caption_restores_original_bytes_exactly(session, photo_dir):
+    p = photo_dir / "a.jpg"
+    os.utime(p, (1_000_000_000, 1_000_000_000))
+    before = p.read_bytes()
+    session.save_caption("temporary")
+    assert p.read_bytes() != before
+    session.undo()
+    assert p.read_bytes() == before
+    assert p.stat().st_mtime == 1_000_000_000
+    assert not (photo_dir / "a_captioned.jpg").exists()
+
+
+def test_clear_caption_removes_metadata_and_copy_and_undo_restores(session, photo_dir):
+    session.save_caption("first")
+    session.save_caption("")
+    assert caption(photo_dir / "a.jpg") == ""
+    assert not (photo_dir / "a_captioned.jpg").exists()
+    session.undo()
+    assert caption(photo_dir / "a.jpg") == "first"
+    assert caption(photo_dir / "a_captioned.jpg") == "first"
+
+
+def test_long_caption_up_to_2000_bytes(session, photo_dir):
+    text = "word " * 399 + "end"  # 1998 bytes
+    session.save_caption(text)
+    assert caption(photo_dir / "a.jpg") == text
+    with pytest.raises(FileOpError):
+        session.save_caption("é" * 1001)
+
+
+def test_caption_on_specific_photo(session, photo_dir):
+    session.next()
+    session.save_caption("for a", photo=photo_dir / "a.jpg")
+    assert caption(photo_dir / "a.jpg") == "for a" and caption(photo_dir / "b.jpg") == ""
+
+
+def test_heic_original_left_unchanged(photo_dir, keep_dir):
+    p = photo_dir / "a.heic"
+    Image.new("RGB", (64, 48)).save(p, "HEIF")
+    before = p.read_bytes()
+    s = ReviewSession(photo_dir, keep_dir)
+    s.load()
+    r = s.save_caption("Phone pic")
+    assert p.read_bytes() == before
+    assert caption(photo_dir / "a_captioned.jpg") == "Phone pic"
+    assert "HEIC original not changed" in r.message
+
+
+def test_metadata_failure_still_creates_copy(session, photo_dir, monkeypatch):
+    monkeypatch.setattr(metadata.os, "access", lambda path, mode: False)
+    r = session.save_caption("x")
+    assert "Warning" in r.message and "read-only" in r.message
+    assert (photo_dir / "a_captioned.jpg").exists()
+    session.undo()
+    assert not (photo_dir / "a_captioned.jpg").exists()
+
+
+def test_resave_identical_caption_skips_original(session, photo_dir):
+    session.save_caption("same")
+    before = (photo_dir / "a.jpg").read_bytes()
+    session.save_caption("same")
+    assert (photo_dir / "a.jpg").read_bytes() == before

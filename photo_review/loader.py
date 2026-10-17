@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtGui import QImage
 
-from . import imaging
+from . import imaging, metadata
 
 DISPLAY_MAX = 3200  # long-edge pixels kept for display (enough for 4K screens)
 CACHE_SIZE = 6
@@ -25,7 +25,7 @@ def pil_to_qimage(im) -> QImage:
 
 
 class _Signals(QObject):
-    loaded = Signal(object, object, str)  # path, QImage | None, error message
+    loaded = Signal(object, object, str, object)  # path, QImage | None, error, CaptionFields
     dates_progress = Signal(int, int, int)  # generation, done, total
     dates_done = Signal(int, object)  # generation, {path: timestamp}
 
@@ -36,11 +36,12 @@ class _DecodeTask(QRunnable):
         self.path, self.signals = path, signals
 
     def run(self) -> None:
+        fields = metadata.read_caption_fields(self.path)
         try:
             img = pil_to_qimage(imaging.load_for_display(self.path, DISPLAY_MAX))
-            self.signals.loaded.emit(self.path, img, "")
+            self.signals.loaded.emit(self.path, img, "", fields)
         except Exception as exc:  # corrupt / unreadable / vanished
-            self.signals.loaded.emit(self.path, None, str(exc) or type(exc).__name__)
+            self.signals.loaded.emit(self.path, None, str(exc) or type(exc).__name__, fields)
 
 
 class _DatesTask(QRunnable):
@@ -59,9 +60,12 @@ class _DatesTask(QRunnable):
 
 
 class ImageLoader(QObject):
-    """Decodes photos off the UI thread. Emits `ready(path, QImage|None, error)`."""
+    """Decodes photos and reads caption metadata off the UI thread.
 
-    ready = Signal(object, object, str)
+    Emits `ready(path, QImage|None, error, CaptionFields)`.
+    """
+
+    ready = Signal(object, object, str, object)
     dates_progress = Signal(int, int, int)
     dates_done = Signal(int, object)
 
@@ -73,10 +77,11 @@ class ImageLoader(QObject):
         self._signals.loaded.connect(self._on_loaded)
         self._signals.dates_progress.connect(self.dates_progress)
         self._signals.dates_done.connect(self.dates_done)
-        self._cache: OrderedDict[Path, tuple[QImage | None, str]] = OrderedDict()
+        self._cache: OrderedDict[Path, tuple] = OrderedDict()  # path -> (img, error, fields)
         self._pending: set[Path] = set()
+        self._fresh_fields: dict = {}  # fields saved while a decode of that path was in flight
 
-    def get(self, path: Path) -> tuple[QImage | None, str] | None:
+    def get(self, path: Path) -> tuple | None:
         if path in self._cache:
             self._cache.move_to_end(path)
             return self._cache[path]
@@ -92,15 +97,24 @@ class ImageLoader(QObject):
         if old in self._cache:
             self._cache[new] = self._cache.pop(old)
 
+    def set_fields(self, path: Path, fields) -> None:
+        if path in self._pending:
+            self._fresh_fields[path] = fields
+        if path in self._cache:
+            img, error, _ = self._cache[path]
+            self._cache[path] = (img, error, fields)
+
     def clear(self) -> None:
         self._cache.clear()
+        self._fresh_fields.clear()
 
     def scan_dates(self, generation: int, paths: list[Path]) -> None:
         self.pool.start(_DatesTask(generation, list(paths), self._signals))
 
-    def _on_loaded(self, path: Path, img, error: str) -> None:
+    def _on_loaded(self, path: Path, img, error: str, fields) -> None:
         self._pending.discard(path)
-        self._cache[path] = (img, error)
+        fields = self._fresh_fields.pop(path, fields)
+        self._cache[path] = (img, error, fields)
         while len(self._cache) > CACHE_SIZE:
             self._cache.popitem(last=False)
-        self.ready.emit(path, img, error)
+        self.ready.emit(path, img, error, fields)

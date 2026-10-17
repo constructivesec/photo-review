@@ -5,6 +5,7 @@ macOS `.app` on macOS. Both use the same spec file, `photo_review.spec`, which:
 
 - bundles `photo_review/resources` (the DejaVu Sans caption font and its license),
 - collects `pillow_heif` including its native libheif/libde265 libraries (HEIC support),
+- collects `pyexiv2` including its native libexiv2 library (caption metadata),
 - builds a single-file `PhotoReview.exe` on Windows and a `PhotoReview.app` bundle on macOS.
 
 ## Windows
@@ -53,7 +54,7 @@ PyInstaller 6+ accepts `:` as the `--add-data` separator on all platforms.
 ```bash
 pyinstaller --noconfirm --clean --windowed --name PhotoReview \
   --add-data "photo_review/resources:photo_review/resources" \
-  --collect-all pillow_heif \
+  --collect-all pillow_heif --collect-all pyexiv2 \
   run_photo_review.py
 ```
 
@@ -63,6 +64,8 @@ Add `--onefile` on Windows for a single `.exe`.
 
 1. Launch the app and open a folder containing a `.heic` photo: it should display.
 2. Submit a caption: `<name>_captioned.jpg` should appear with the white text in a black bar.
-3. If HEIC photos show the "Cannot display" placeholder, pillow-heif's native
+3. Type a caption and press Next, then go Back: the caption should reappear in the box.
+   If the app fails to start, pyexiv2's native library was not bundled.
+4. If HEIC photos show the "Cannot display" placeholder, pillow-heif's native
    libraries were not bundled; rebuild with `--clean` and check the PyInstaller
    log for `pillow_heif`.

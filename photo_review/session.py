@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Union
 
-from . import fileops, imaging
+from . import fileops, imaging, metadata
 from .fileops import FileOpError
 
 SORT_OPTIONS: list[tuple[str, str]] = [
@@ -63,8 +63,11 @@ class NoAction:
 @dataclass
 class CaptionAction:
     photo: Path
-    caption: Path
-    backup: Path | None  # prior captioned copy, or None if this created a new one
+    caption: Path                       # the captioned copy's path
+    backup: Path | None                 # prior captioned copy, or None if there was none
+    copy_changed: bool = True           # captioned copy was created, replaced or removed
+    photo_backup: Path | None = None    # original photo bytes before its metadata changed
+    photo_stat: os.stat_result | None = None
 
 
 Action = Union[YesAction, NoAction, CaptionAction]
@@ -241,23 +244,71 @@ class ReviewSession:
         self.next()
         return Result(message, finished=finished)
 
-    def add_caption(self, text: str) -> Result:
-        src = self.current
+    def save_caption(self, text: str, photo: Path | None = None) -> Result:
+        """Save (or clear, when text is blank) the caption of `photo` (default: current).
+
+        Writes the four metadata fields of the original (JPEG/PNG only; pixels untouched)
+        and creates, replaces or removes the captioned copy. Both are undone together.
+        """
+        src = photo or self.current
         if src is None:
             raise FileOpError("No photo selected.")
+        text = metadata.clean(text)
+        if metadata.caption_bytes(text) > metadata.MAX_CAPTION_BYTES:
+            raise FileOpError(f"Caption is longer than {metadata.MAX_CAPTION_BYTES} bytes.")
+        done: list[str] = []
+        errors: list[str] = []
+
+        photo_backup = photo_stat = None
+        if not metadata.is_writable_format(src):
+            done.append(f"{src.suffix.upper().lstrip('.')} original not changed")
+        elif not metadata.fields_match(metadata.read_caption_fields(src), text, src):
+            try:
+                photo_stat = src.stat()
+                photo_backup = self._backup(src)
+                metadata.write_caption(src, text)
+                done.append(f"Caption {'saved to' if text else 'removed from'} {src.name}")
+            except (FileOpError, OSError) as exc:
+                if photo_backup is not None:
+                    photo_backup.unlink(missing_ok=True)
+                photo_backup = None
+                errors.append(str(exc) if isinstance(exc, FileOpError) else exc.strerror or str(exc))
+
         cap = fileops.captioned_path(src)
-        backup = None
-        if cap.exists():
-            backup = self._backup(cap)
+        copy_backup = None
+        copy_changed = False
         try:
-            out = imaging.create_captioned_copy(src, text)
-        except FileOpError:
-            if backup is not None:
-                backup.unlink(missing_ok=True)
-            raise
-        self.undo_stack.append(CaptionAction(photo=src, caption=out, backup=backup))
-        verb = "Replaced" if backup else "Saved"
-        return Result(f"{verb} captioned copy: {out.name}")
+            if text:
+                existed = cap.exists()
+                if existed:
+                    copy_backup = self._backup(cap)
+                cap = imaging.create_captioned_copy(src, text)
+                copy_changed = True
+                done.append(f"{'replaced' if existed else 'created'} {cap.name}")
+            elif cap.exists():
+                copy_backup = self._backup(cap)
+                cap.unlink()
+                copy_changed = True
+                done.append(f"removed {cap.name}")
+        except (FileOpError, OSError) as exc:
+            if copy_backup is not None:
+                copy_backup.unlink(missing_ok=True)
+            copy_backup = None
+            errors.append(f"Captioned copy: {exc}" if isinstance(exc, FileOpError)
+                          else f"Captioned copy: {exc.strerror or exc}")
+
+        if photo_backup is None and not copy_changed:
+            if errors:
+                raise FileOpError("; ".join(errors))
+            return Result("Caption already up to date")
+        self.undo_stack.append(CaptionAction(
+            photo=src, caption=cap, backup=copy_backup, copy_changed=copy_changed,
+            photo_backup=photo_backup, photo_stat=photo_stat))
+        message = "; ".join(done) if done else "Caption saved"
+        message = message[0].upper() + message[1:]
+        if errors:
+            message += ". Warning: " + "; ".join(errors)
+        return Result(message)
 
     # ------------------------------------------------------------ undo
 
@@ -303,18 +354,24 @@ class ReviewSession:
         return Result(f"Undo: renamed back to {a.old.name}")
 
     def _undo_caption(self, a: CaptionAction) -> Result:
+        if a.photo_backup is not None:
+            try:
+                data = a.photo_backup.read_bytes()
+            except OSError as exc:
+                raise FileOpError(f"Cannot undo caption: {exc.strerror or exc}") from exc
+            metadata.atomic_write(a.photo, data, keep_times=a.photo_stat)
+            a.photo_backup.unlink(missing_ok=True)
+            a.photo_backup = None  # done; a retry after a later failure must not redo it
         try:
-            if a.backup is not None:
+            if a.copy_changed and a.backup is not None:
                 shutil.copy2(a.backup, a.caption)
                 a.backup.unlink(missing_ok=True)
-                msg = f"Undo: restored previous {a.caption.name}"
-            else:
+            elif a.copy_changed:
                 a.caption.unlink(missing_ok=True)
-                msg = f"Undo: removed {a.caption.name}"
         except OSError as exc:
-            raise FileOpError(f"Cannot undo caption: {exc.strerror or exc}") from exc
+            raise FileOpError(f"Cannot undo captioned copy: {exc.strerror or exc}") from exc
         self.go_to(a.photo)
-        return Result(msg)
+        return Result(f"Undo: caption change on {a.photo.name} reversed")
 
     # ------------------------------------------------------------ helpers
 

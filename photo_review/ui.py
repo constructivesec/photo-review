@@ -13,13 +13,13 @@ from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import fileops
+from . import fileops, metadata
 from .config import Config
 from .fileops import FileOpError
-from .imaging import MAX_CAPTION_LEN
 from .loader import ImageLoader
 from .session import (
-    DEFAULT_SORT, SORT_KEYS, SORT_OPTIONS, NoAction, ReviewSession, sort_needs_dates,
+    DEFAULT_SORT, SORT_KEYS, SORT_OPTIONS, CaptionAction, NoAction, ReviewSession,
+    sort_needs_dates,
 )
 from .widgets import ImageView, arrow_icon, no_icon, undo_icon, yes_icon
 
@@ -68,6 +68,9 @@ class MainWindow(QMainWindow):
         self._busy = False            # reading EXIF dates
         self._pending_sort: str | None = None
         self._reset_position = False  # go to the first photo once dates arrive
+        self._cap_path: Path | None = None    # photo the caption box belongs to
+        self._cap_saved: str | None = None    # its stored caption (None until metadata is read)
+        self._note: tuple[str, bool] | None = None  # caption save result shown with the next status
 
         self.setWindowTitle("Photo Review")
         self.resize(1100, 820)
@@ -207,26 +210,32 @@ class MainWindow(QMainWindow):
         cap = QHBoxLayout()
         cap.addWidget(QLabel("Caption:"))
         self.caption_edit = QLineEdit()
-        self.caption_edit.setMaxLength(MAX_CAPTION_LEN)
+        self.caption_edit.setMaxLength(metadata.MAX_CAPTION_BYTES)
         self.caption_edit.setFont(bigger)
         self.caption_edit.setPlaceholderText("Type a caption, then press Submit (or Enter)")
         self.caption_edit.setToolTip(
-            "Saves a COPY of the photo with this caption in a black bar. "
-            "The original is not changed. Press Esc to leave the box.")
-        self.caption_edit.textChanged.connect(self._update_remaining)
+            "The photo's caption. It is saved into the photo's caption fields and into a "
+            "captioned COPY (with a black caption bar) when you press Submit or move to another "
+            "photo. Clear the box to remove the caption. Press Esc to leave the box.")
+        self.caption_edit.textChanged.connect(self._on_caption_text)
         self.caption_edit.returnPressed.connect(self.do_caption)
         self.remaining = QLabel()
-        self.remaining.setMinimumWidth(70)
+        self.remaining.setMinimumWidth(80)
+        self.remaining.setToolTip("Space left (accented letters and emoji take more than one)")
+        self.disagree = QLabel("⚠ Caption fields differ")
+        self.disagree.setStyleSheet("color:#b26a00;font-weight:bold;")
+        self.disagree.hide()
         self.caption_btn = QPushButton("Submit")
         self.caption_btn.setMinimumHeight(36)
         self.caption_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.caption_btn.setToolTip("Create the captioned copy (Enter)")
+        self.caption_btn.setToolTip("Save the caption into the photo and create the captioned copy (Enter)")
         self.caption_btn.clicked.connect(self.do_caption)
         cap.addWidget(self.caption_edit, 1)
+        cap.addWidget(self.disagree)
         cap.addWidget(self.remaining)
         cap.addWidget(self.caption_btn)
         root.addLayout(cap)
-        self._update_remaining()
+        self._on_caption_text("")
 
         self.status_label = QLabel()
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -265,6 +274,10 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ status / refresh
 
     def show_status(self, text: str, error: bool = False) -> None:
+        if self._note:
+            note, note_error = self._note
+            self._note = None
+            text, error = f"{note}  |  {text}", error or note_error
         self.status_label.setStyleSheet("color:#c62828;font-weight:bold;" if error else "")
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
@@ -293,22 +306,26 @@ class MainWindow(QMainWindow):
     def show_current(self) -> None:
         """Display the current photo (from cache or start decoding) and prefetch neighbours."""
         s = self.session
-        self.caption_edit.clear()
         if s is None:
+            self._set_caption_box(None, None)
             self.view.set_message(WELCOME_TEXT)
             return
         if self._busy:
             return
         cur = s.current
         if cur is None:
+            self._set_caption_box(None, None)
             self.view.set_message(ALL_DONE_TEXT if s.undo_stack else EMPTY_TEXT)
             if s.undo_stack:
                 self.show_banner(None)
             return
         cached = self.loader.get(cur)
         if cached is not None:
-            self._display(cur, *cached)
+            img, error, fields = cached
+            self._display(cur, img, error)
+            self._set_caption_box(cur, fields)
         else:
+            self._set_caption_box(cur, None)
             self.view.set_message(f"Loading {cur.name}…", no_badge=fileops.is_no(cur))
             self.loader.request(cur)
         self.loader.request(s.peek(1))
@@ -323,9 +340,83 @@ class MainWindow(QMainWindow):
             self.view.set_image(img, no_badge=fileops.is_no(path))
         self.setWindowTitle(f"Photo Review - {path.name}")
 
-    def _on_image_ready(self, path: Path, img, error: str) -> None:
+    def _on_image_ready(self, path: Path, img, error: str, fields) -> None:
         if self.session and not self._busy and path == self.session.current:
             self._display(path, img, error)
+            self._set_caption_box(path, fields)
+
+    # ------------------------------------------------------------ caption box
+
+    def _set_caption_box(self, path: Path | None, fields) -> None:
+        """Show `path`'s stored caption in the box (once its metadata has been read)."""
+        if path != self._cap_path:
+            self._cap_path, self._cap_saved = path, None
+            self.caption_edit.setText("")
+            self.disagree.hide()
+        if path is None or fields is None or self._cap_saved is not None:
+            return
+        choice = metadata.choose_caption(fields)
+        self._cap_saved = choice.text
+        if not self.caption_edit.text():  # don't overwrite what the user already typed
+            self.caption_edit.setText(choice.text)
+            self.caption_edit.setCursorPosition(len(choice.text))
+        if choice.disagree:
+            detail = "\n".join(f"{metadata.FIELD_LABELS[k]}: {v or '(blank)'}"
+                               for k, v in fields.values().items())
+            self.disagree.setText("⚠ Fields differ")
+            self.disagree.setToolTip(
+                f"The photo's caption fields hold different text. Showing "
+                f"{metadata.FIELD_LABELS[choice.source]}. Submit saves the box's text to all "
+                f"of them.\n\n" + detail)
+            self.disagree.show()
+        else:
+            self.disagree.hide()
+        if fields.errors:
+            self.show_status(f"Caption metadata could not be fully read: {'; '.join(fields.errors)}",
+                             error=True)
+
+    def _caption_dirty(self) -> bool:
+        if self._cap_path is None:
+            return False
+        return metadata.clean(self.caption_edit.text()) != (self._cap_saved or "")
+
+    def _save_caption(self) -> bool:
+        """Save the box's caption for its photo. Returns True if something was attempted."""
+        path, s = self._cap_path, self.session
+        if s is None or path is None or path not in s.files:
+            return False
+        text = metadata.clean(self.caption_edit.text())
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            result = s.save_caption(text, photo=path)
+        finally:
+            QApplication.restoreOverrideCursor()
+        self._cap_saved = text
+        self.disagree.hide()
+        self.loader.set_fields(path, metadata.read_caption_fields(path))
+        self.show_status(result.message, error="Warning" in result.message)
+        return True
+
+    def _commit_caption(self) -> None:
+        """Before the displayed photo changes: save an edited or cleared caption."""
+        if not self._caption_dirty():
+            return
+        try:
+            self._save_caption()
+            self._note = (self.status_label.text(), "Warning" in self.status_label.text())
+        except FileOpError as exc:
+            self._note = (f"Caption not saved: {exc}", True)
+        self._cap_path = None  # the box now belongs to whatever is shown next
+
+    def _on_caption_text(self, text: str) -> None:
+        if metadata.caption_bytes(text) > metadata.MAX_CAPTION_BYTES:
+            while metadata.caption_bytes(text) > metadata.MAX_CAPTION_BYTES:
+                text = text[:-1]
+            self.caption_edit.setText(text)  # re-enters this handler once with valid text
+            return
+        left = metadata.MAX_CAPTION_BYTES - metadata.caption_bytes(text)
+        self.remaining.setText(f"{left} left")
+        self.remaining.setStyleSheet("color:#c62828;" if left <= 20 else "")
 
     def _after_move(self, show_finished: bool = False) -> None:
         self.show_banner(FINISHED_TEXT if show_finished and self.session.current else None)
@@ -343,6 +434,7 @@ class MainWindow(QMainWindow):
     @safe
     def open_folder(self, folder: Path) -> None:
         if self.session:
+            self._commit_caption()
             self.session.close()
         self.loader.clear()
         self.show_banner(None)
@@ -420,6 +512,7 @@ class MainWindow(QMainWindow):
         self.config.save(self.config_path)
         if not self.session:
             return
+        self._commit_caption()
         missing = [p for p in self.session.files if p not in self.session.date_cache]
         if sort_needs_dates(key) and missing:
             self._start_date_scan(key, missing)
@@ -457,6 +550,7 @@ class MainWindow(QMainWindow):
     @safe
     def _on_hide_no(self, checked: bool) -> None:
         if self.session:
+            self._commit_caption()
             self.session.set_hide_no(checked)
             self.show_banner(None)
             self.show_current()
@@ -469,12 +563,14 @@ class MainWindow(QMainWindow):
     @safe
     def go_next(self) -> None:
         if self._ready() and self.session.can_next():
+            self._commit_caption()
             self.session.next()
             self._after_move()
 
     @safe
     def go_back(self) -> None:
         if self._ready() and self.session.can_back():
+            self._commit_caption()
             self.session.back()
             self._after_move()
 
@@ -484,6 +580,7 @@ class MainWindow(QMainWindow):
             return
         if not self._check_keep():
             return
+        self._commit_caption()  # save first so the captioned copy moves with the photo
         self.session.keep_folder = self._keep_path()
         result = self.session.mark_yes()
         self.show_status(result.message, error="Warning" in result.message)
@@ -493,6 +590,7 @@ class MainWindow(QMainWindow):
     def do_no(self) -> None:
         if not self._ready():
             return
+        self._commit_caption()
         result = self.session.mark_no()
         self.show_status(result.message)
         self._after_move(result.finished)
@@ -501,35 +599,41 @@ class MainWindow(QMainWindow):
     def do_caption(self) -> None:
         if not self._ready():
             return
-        text = self.caption_edit.text()
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            result = self.session.add_caption(text)
-        finally:
-            QApplication.restoreOverrideCursor()
-        self.caption_edit.clear()
+        text = metadata.clean(self.caption_edit.text())
+        if not text and not self._cap_saved:
+            raise FileOpError("Type a caption first.")
+        self._cap_path = self.session.current
+        self._save_caption()
+        self.caption_edit.setText(text)
         self.view.setFocus()
-        self.show_status(result.message)
 
     @safe
     def do_undo(self) -> None:
-        if not self.session or self._busy or not self.session.can_undo():
+        if not self.session or self._busy:
+            return
+        if self._caption_dirty():  # first undo discards an unsaved caption edit
+            self.caption_edit.setText(self._cap_saved or "")
+            self.show_status("Caption edit discarded")
+            return
+        if not self.session.can_undo():
             return
         top = self.session.undo_stack[-1]
         result = self.session.undo()
         if isinstance(top, NoAction):
             self.loader.rename(top.new, top.old)
+        elif isinstance(top, CaptionAction):
+            self.loader.set_fields(top.photo, metadata.read_caption_fields(top.photo))
+        self._cap_path = None  # refill the caption box from the photo's metadata
         self.show_status(result.message, error="Warning" in result.message)
         self._after_move()
 
     # ------------------------------------------------------------ misc
 
-    def _update_remaining(self) -> None:
-        left = MAX_CAPTION_LEN - len(self.caption_edit.text())
-        self.remaining.setText(f"{left} left")
-        self.remaining.setStyleSheet("color:#c62828;" if left <= 5 else "")
-
     def closeEvent(self, event) -> None:
+        try:
+            self._commit_caption()
+        except Exception:
+            traceback.print_exc()
         self.config.window_geometry = bytes(self.saveGeometry().toBase64()).decode()
         self.config.keep_folder = self.keep_edit.text().strip()
         self.config.sort_key = self.sort_combo.currentData()
