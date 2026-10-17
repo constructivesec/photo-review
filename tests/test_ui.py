@@ -11,6 +11,8 @@ from PySide6.QtWidgets import QApplication
 from photo_review.config import Config
 from photo_review.ui import MainWindow
 
+from PIL import Image
+
 from conftest import make_image
 
 
@@ -75,3 +77,59 @@ def test_image_eventually_displayed(window):
             break
         QTest.qWait(50)
     assert window.view._image is not None
+
+
+def wait_for_info(window):
+    for _ in range(60):
+        if window._info[1] is not None:
+            return window._info[1]
+        QTest.qWait(50)
+    raise AssertionError("info never arrived")
+
+
+def test_info_strip_and_toggle(window, photo_dir):
+    info = wait_for_info(window)
+    text = window.info_strip.text()
+    assert "a.jpg" in text and "120 × 80" in text and "(modified)" in text
+    assert info.date_is_modified
+    assert not window.info_panel.isVisible()
+    window.activateWindow()
+    QTest.keyClick(window, Qt.Key.Key_I)
+    assert window.info_panel.isVisible() and window.info_btn.isChecked()
+    assert window.no_exif_label.isVisible() and window.no_exif_label.text() == "No EXIF data"
+    QTest.keyClick(window, Qt.Key.Key_I)
+    assert not window.info_panel.isVisible()
+
+
+def test_info_key_types_in_caption(window):
+    window.activateWindow()
+    window.caption_edit.setFocus()
+    QTest.keyClicks(window.caption_edit, "I")
+    assert window.caption_edit.text() == "I" and not window.info_btn.isChecked()
+
+
+def test_gps_row_and_setting(app, photo_dir, tmp_path):
+    from PIL.TiffImagePlugin import IFDRational
+    exif = Image.Exif()
+    exif[0x010F] = "TestCam"
+    gps = exif.get_ifd(0x8825)
+    gps[1], gps[2] = "N", (IFDRational(40, 1), IFDRational(0, 1), IFDRational(0, 1))
+    gps[3], gps[4] = "W", (IFDRational(74, 1), IFDRational(0, 1), IFDRational(0, 1))
+    make_image(photo_dir / "g.jpg", exif=exif.tobytes())
+    cfg_path = tmp_path / "cfg.json"
+    w = MainWindow(Config(last_folder=str(photo_dir)), cfg_path)
+    w.show()
+    try:
+        wait_for_info(w)
+        w.info_btn.setChecked(True)
+        assert not w.no_exif_label.isVisible()
+        assert w.info_values["camera"].text() == "TestCam"
+        assert w.info_values["gps"].text() == "40.000000, -74.000000"
+        assert "google.com/maps" in w.maps_link.text() and w.maps_link.isVisible()
+        assert w.info_form.isRowVisible(w._gps_row)
+        assert w.info_values["iso"].text() == "n/a"
+        w.show_gps_box.setChecked(False)
+        assert not w.info_form.isRowVisible(w._gps_row)
+        assert Config.load(cfg_path).show_gps is False
+    finally:
+        w.close()

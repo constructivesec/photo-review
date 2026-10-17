@@ -49,14 +49,19 @@ FONT_PATH = resource_path("fonts", "DejaVuSans.ttf")
 def load_for_display(path: Path, max_size: int) -> Image.Image:
     """Decode a photo, apply EXIF orientation, and shrink it to at most max_size px."""
     with Image.open(path) as im:
-        if im.format == "JPEG":
-            im.draft("RGB", (max_size, max_size))  # fast DCT-domain downscale
-        im = ImageOps.exif_transpose(im)
-        im.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-        if im.mode not in ("RGB", "RGBA"):
-            im = im.convert("RGBA" if "A" in im.getbands() or "transparency" in im.info else "RGB")
-        im.load()
-        return im
+        return prepare_for_display(im, max_size)
+
+
+def prepare_for_display(im: Image.Image, max_size: int) -> Image.Image:
+    """Upright, shrunk, RGB/RGBA copy of an open image (see load_for_display)."""
+    if im.format == "JPEG":
+        im.draft("RGB", (max_size, max_size))  # fast DCT-domain downscale
+    im = ImageOps.exif_transpose(im)
+    im.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+    if im.mode not in ("RGB", "RGBA"):
+        im = im.convert("RGBA" if "A" in im.getbands() or "transparency" in im.info else "RGB")
+    im.load()
+    return im
 
 
 # ---------------------------------------------------------------- dates
@@ -67,18 +72,29 @@ def _parse_exif_date(value) -> float | None:
     try:
         text = value.decode() if isinstance(value, bytes) else str(value)
         return datetime.strptime(text.strip("\x00 ")[:19], "%Y:%m:%d %H:%M:%S").timestamp()
-    except (ValueError, OSError, UnicodeDecodeError):
+    except (ValueError, OSError, OverflowError, UnicodeDecodeError):
         return None
+
+
+def exif_timestamp(exif) -> float | None:
+    """EXIF DateTimeOriginal, else DateTime, else None. Never raises."""
+    try:
+        ts = _parse_exif_date(exif.get_ifd(EXIF_IFD).get(EXIF_DATETIME_ORIGINAL))
+    except Exception:
+        ts = None
+    if ts is None:
+        try:
+            ts = _parse_exif_date(exif.get(EXIF_DATETIME))
+        except Exception:
+            pass
+    return ts
 
 
 def date_taken(path: Path) -> float:
     """EXIF DateTimeOriginal (or DateTime), falling back to the file's modified time."""
     try:
         with Image.open(path) as im:
-            exif = im.getexif()
-            ts = _parse_exif_date(exif.get_ifd(EXIF_IFD).get(EXIF_DATETIME_ORIGINAL))
-            if ts is None:
-                ts = _parse_exif_date(exif.get(EXIF_DATETIME))
+            ts = exif_timestamp(im.getexif())
             if ts is not None:
                 return ts
     except Exception:

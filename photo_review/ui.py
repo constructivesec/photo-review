@@ -9,11 +9,11 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QSize, Qt
 from PySide6.QtGui import QAction, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QLineEdit,
-    QMainWindow, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel,
+    QLineEdit, QMainWindow, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
-from . import fileops
+from . import exif, fileops
 from .config import Config
 from .fileops import FileOpError
 from .imaging import MAX_CAPTION_LEN
@@ -138,6 +138,14 @@ class MainWindow(QMainWindow):
         top.addWidget(self.sort_combo)
         top.addSpacing(10)
         top.addWidget(self.hide_no_box)
+        i = native("I")
+        self.info_btn = QPushButton(f"Info  [{i}]")
+        self.info_btn.setCheckable(True)
+        self.info_btn.setToolTip(f"Show or hide camera details ({i})")
+        self.info_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.info_btn.toggled.connect(self._on_info_toggled)
+        top.addSpacing(10)
+        top.addWidget(self.info_btn)
         root.addLayout(top)
 
         # Keep folder row
@@ -162,7 +170,20 @@ class MainWindow(QMainWindow):
         self.banner.hide()
         root.addWidget(self.banner)
         self.view = ImageView()
-        root.addWidget(self.view, 1)
+        self.info_panel = self._build_info_panel()
+        self.info_panel.hide()
+        middle = QHBoxLayout()
+        middle.addWidget(self.view, 1)
+        middle.addWidget(self.info_panel)
+        root.addLayout(middle, 1)
+
+        # Info strip: date, filename, dimensions, size
+        self.info_strip = QLabel()
+        self.info_strip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.info_strip.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.info_strip.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.info_strip.setStyleSheet("color:#616161;")
+        root.addWidget(self.info_strip)
 
         # Counter
         self.counter = QLabel("0 of 0")
@@ -232,10 +253,58 @@ class MainWindow(QMainWindow):
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.statusBar().addWidget(self.status_label, 1)
         self.setCentralWidget(central)
+        self._info: tuple[Path | None, exif.PhotoInfo | None] = (None, None)
+        self._set_info(None, None)
+
+    def _build_info_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setFrameShape(QFrame.Shape.StyledPanel)
+        panel.setFixedWidth(260)
+        box = QVBoxLayout(panel)
+        title = QLabel("Photo info")
+        tf = title.font()
+        tf.setBold(True)
+        tf.setPointSize(tf.pointSize() + 2)
+        title.setFont(tf)
+        box.addWidget(title)
+        self.no_exif_label = QLabel(exif.NO_EXIF_TEXT)
+        box.addWidget(self.no_exif_label)
+
+        self.info_form = QFormLayout()
+        self.info_values: dict[str, QLabel] = {}
+        for key, label in [("camera", "Camera"), ("gps", "GPS"), ("shutter", "Shutter"),
+                           ("aperture", "Aperture"), ("iso", "ISO"), ("focal", "Focal length")]:
+            value = QLabel(exif.NA)
+            value.setWordWrap(True)
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            self.info_values[key] = value
+            if key == "gps":
+                self.maps_link = QLabel()
+                self.maps_link.setOpenExternalLinks(True)  # opens the default browser
+                self.maps_link.setToolTip("Open this location in the default web browser")
+                cell = QWidget()
+                col = QVBoxLayout(cell)
+                col.setContentsMargins(0, 0, 0, 0)
+                col.addWidget(value)
+                col.addWidget(self.maps_link)
+                self.info_form.addRow(f"{label}:", cell)
+                self._gps_row = self.info_form.rowCount() - 1
+            else:
+                self.info_form.addRow(f"{label}:", value)
+        box.addLayout(self.info_form)
+        box.addStretch(1)
+
+        self.show_gps_box = QCheckBox("Show GPS")
+        self.show_gps_box.setToolTip("Show GPS coordinates and a map link in this panel")
+        self.show_gps_box.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.show_gps_box.setChecked(self.config.show_gps)
+        self.show_gps_box.toggled.connect(self._on_show_gps)
+        box.addWidget(self.show_gps_box)
+        return panel
 
     def _build_shortcuts(self) -> None:
         bindings = [
-            ("Y", self.do_yes), ("N", self.do_no),
+            ("Y", self.do_yes), ("N", self.do_no), ("I", self.info_btn.toggle),
             (Qt.Key.Key_Right, self.go_next), (Qt.Key.Key_Left, self.go_back),
             (QKeySequence.StandardKey.Undo, self.do_undo),
         ]
@@ -290,10 +359,37 @@ class MainWindow(QMainWindow):
         self.sort_combo.setEnabled(not self._busy)
         self.hide_no_box.setEnabled(s is not None and not self._busy)
 
+    def _set_info(self, path: Path | None, info: exif.PhotoInfo | None) -> None:
+        """Fill the info strip and side panel. info=None means not loaded yet (or no photo)."""
+        self._info = (path, info)
+        if info is not None:
+            self.info_strip.setText(exif.info_line(info, path.name))
+        else:
+            self.info_strip.setText(path.name if path else "")
+        has_exif = bool(info and info.has_exif)
+        self.no_exif_label.setText(exif.NO_EXIF_TEXT if info else "No photo")
+        self.no_exif_label.setVisible(not has_exif)
+        for row in range(self.info_form.rowCount()):
+            self.info_form.setRowVisible(row, has_exif)
+        if not has_exif:
+            return
+        self.info_form.setRowVisible(self._gps_row, self.config.show_gps)
+        v = self.info_values
+        v["camera"].setText(exif.format_camera(info))
+        v["gps"].setText(exif.format_gps(info.gps))
+        self.maps_link.setText(f'<a href="{exif.maps_url(info.gps)}">Open in Maps</a>'
+                               if info.gps else "")
+        self.maps_link.setVisible(info.gps is not None)
+        v["shutter"].setText(exif.format_shutter(info.exposure_time))
+        v["aperture"].setText(exif.format_aperture(info.f_number))
+        v["iso"].setText(exif.format_iso(info.iso))
+        v["focal"].setText(exif.format_focal(info.focal_length))
+
     def show_current(self) -> None:
         """Display the current photo (from cache or start decoding) and prefetch neighbours."""
         s = self.session
         self.caption_edit.clear()
+        self._set_info(s.current if s and not self._busy else None, None)
         if s is None:
             self.view.set_message(WELCOME_TEXT)
             return
@@ -314,7 +410,8 @@ class MainWindow(QMainWindow):
         self.loader.request(s.peek(1))
         self.loader.request(s.peek(-1))
 
-    def _display(self, path: Path, img, error: str) -> None:
+    def _display(self, path: Path, img, error: str, info=None) -> None:
+        self._set_info(path, info)
         if img is None:
             self.view.set_message(f"Cannot display this photo:\n{path.name}",
                                   no_badge=fileops.is_no(path))
@@ -323,9 +420,9 @@ class MainWindow(QMainWindow):
             self.view.set_image(img, no_badge=fileops.is_no(path))
         self.setWindowTitle(f"Photo Review - {path.name}")
 
-    def _on_image_ready(self, path: Path, img, error: str) -> None:
+    def _on_image_ready(self, path: Path, img, error: str, info) -> None:
         if self.session and not self._busy and path == self.session.current:
-            self._display(path, img, error)
+            self._display(path, img, error, info)
 
     def _after_move(self, show_finished: bool = False) -> None:
         self.show_banner(FINISHED_TEXT if show_finished and self.session.current else None)
@@ -433,6 +530,7 @@ class MainWindow(QMainWindow):
         self._pending_sort = key
         paths = paths if paths is not None else list(self.session.files)
         self.view.set_message(f"Reading photo dates… (0 of {len(paths)})")
+        self._set_info(None, None)
         self.show_status("Reading photo dates for sorting…")
         self.loader.scan_dates(self._generation, paths)
         self.refresh_controls()
@@ -460,6 +558,16 @@ class MainWindow(QMainWindow):
             self.session.set_hide_no(checked)
             self.show_banner(None)
             self.show_current()
+
+    # ------------------------------------------------------------ info panel
+
+    def _on_info_toggled(self, checked: bool) -> None:
+        self.info_panel.setVisible(checked)
+
+    def _on_show_gps(self, checked: bool) -> None:
+        self.config.show_gps = checked
+        self.config.save(self.config_path)
+        self._set_info(*self._info)
 
     # ------------------------------------------------------------ actions
 

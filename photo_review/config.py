@@ -22,6 +22,7 @@ class Config:
     keep_folder: str = ""
     sort_key: str = "name_asc"
     window_geometry: str = ""  # base64 of QWidget.saveGeometry()
+    show_gps: bool = True
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
@@ -32,8 +33,8 @@ class Config:
             return cls()
         if not isinstance(data, dict):
             return cls()
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known and isinstance(v, str)})
+        types = {f.name: type(f.default) for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in types and type(v) is types[k]})
 
     def save(self, path: Path | None = None) -> None:
         path = path or config_path()

@@ -34,6 +34,7 @@ For standalone builds (`PhotoReview.exe` / `PhotoReview.app`), see [BUILD.md](BU
 | NO (red) | `N` | Renames the photo `name_NO.jpg`, leaves it in place, and shows the next one. |
 | Next / Back | `Right` / `Left` | Moves between photos. |
 | Undo | `Ctrl+Z` (Windows), `Cmd+Z` (macOS) | Reverses the last action. You can undo repeatedly, back to when you opened the folder. |
+| Info | `I` | Shows or hides the photo info side panel. |
 
 - The counter (for example `12 of 128`) shows where you are. YES removes the
   photo from the list, so the total goes down.
@@ -42,8 +43,23 @@ For standalone builds (`PhotoReview.exe` / `PhotoReview.app`), see [BUILD.md](BU
 - **Hide NO photos** skips photos marked NO.
 - **Sort** orders photos by filename, date taken (from the camera's EXIF data,
   or the file date if missing), or date modified.
-- The app remembers the last folder, Keep folder and sort choice. It always
+- The app remembers the last folder, Keep folder, sort choice and Show GPS setting. It always
   starts at the first photo.
+
+### Photo info
+
+A line below each photo shows the date taken, filename, dimensions with
+megapixels, and file size. If the photo has no EXIF date, the file's modified
+date is shown instead, labeled `(modified)`.
+
+**Info** (or `I`) opens a side panel with the camera make/model, GPS
+coordinates with an **Open in Maps** link (opens your default browser), shutter
+speed, aperture, ISO, and focal length. Missing fields show `n/a`; photos with
+no EXIF at all show "No EXIF data". Uncheck **Show GPS** at the bottom of the
+panel to hide the location row; the app remembers this setting.
+
+EXIF is read for JPEG, PNG and HEIC/HEIF in the same background thread that
+decodes the photo. Damaged EXIF is ignored rather than reported as an error.
 
 ### Captions
 
@@ -91,9 +107,10 @@ Project layout:
 |---|---|
 | `photo_review/fileops.py` | Scanning, naming rules, collision-safe move/rename |
 | `photo_review/imaging.py` | Decoding, EXIF dates, caption rendering |
+| `photo_review/exif.py` | Info strip / panel data: EXIF camera fields, GPS, formatting |
 | `photo_review/session.py` | Working list, sort/filter, YES/NO/caption, undo (no Qt) |
 | `photo_review/config.py` | JSON settings in the OS config folder (`platformdirs`) |
-| `photo_review/loader.py` | Background decoding and EXIF date scanning |
+| `photo_review/loader.py` | Background decoding (with EXIF info) and EXIF date scanning |
 | `photo_review/ui.py`, `widgets.py` | Qt main window, image view, icons |
 
 The bundled font is DejaVu Sans (`photo_review/resources/fonts`, Bitstream Vera
