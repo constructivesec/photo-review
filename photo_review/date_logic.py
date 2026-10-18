@@ -61,13 +61,17 @@ def format_display(dt: datetime) -> str:
 
 
 class DateInputError(ValueError):
-    """Invalid month/year input. The message is shown in the status bar."""
+    """Invalid month/day/year input. The message is shown in the status bar."""
 
 
-def validate(month_text: str, year_text: str, today: date | None = None) -> tuple[int, int]:
-    """Validate the Month and Year fields. Returns (month, year)."""
+def validate(
+    month_text: str, day_text: str, year_text: str, today: date | None = None
+) -> tuple[int, int | None, int]:
+    """Validate the Month, Day and Year fields. Returns (month, day, year).
+
+    Day is optional: blank returns None (the existing day is kept, see new_value)."""
     today = today or date.today()
-    m_txt, y_txt = month_text.strip(), year_text.strip()
+    m_txt, d_txt, y_txt = month_text.strip(), day_text.strip(), year_text.strip()
     if not m_txt.isdigit() or not y_txt.isdigit():
         raise DateInputError("Enter the month as a number (1 to 12) and the year as four digits.")
     if len(y_txt) != 4:
@@ -79,16 +83,29 @@ def validate(month_text: str, year_text: str, today: date | None = None) -> tupl
         raise DateInputError(f"The year must be between {MIN_YEAR} and {today.year}.")
     if (year, month) > (today.year, today.month):
         raise DateInputError("That month is in the future.")
-    return month, year
+    if not d_txt:
+        return month, None, year
+    if not d_txt.isdigit():
+        raise DateInputError("Enter the day as a number, or leave it blank.")
+    day, last = int(d_txt), calendar.monthrange(year, month)[1]
+    if not 1 <= day <= last:
+        raise DateInputError(f"The day must be a number from 1 to {last} for that month.")
+    if (year, month, day) > (today.year, today.month, today.day):
+        raise DateInputError("That day is in the future.")
+    return month, day, year
 
 
-def new_value(previous: datetime | None, month: int, year: int) -> datetime:
-    """Previously dated: keep the day (clamped to the month) and the time of day.
-    Previously blank: day 1 at 12:00:00."""
+def new_value(previous: datetime | None, month: int, year: int, day: int | None = None) -> datetime:
+    """The new stored date. The time of day is kept (12:00:00 if there was no date).
+
+    With a day: that exact day. Without a day: the previous day, clamped to the month, or day 1
+    if there was no date."""
+    if day is None:
+        last = calendar.monthrange(year, month)[1]
+        day = 1 if previous is None else min(previous.day, last)
     if previous is None:
-        return datetime(year, month, 1, *NOON)
-    last = calendar.monthrange(year, month)[1]
-    return previous.replace(year=year, month=month, day=min(previous.day, last))
+        return datetime(year, month, day, *NOON)
+    return previous.replace(year=year, month=month, day=day)
 
 
 def csv_date(dt: datetime | None, approximate: bool) -> str:

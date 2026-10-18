@@ -44,34 +44,50 @@ def test_effective_date_precedence() -> None:
 
 
 @pytest.mark.parametrize(
-    "m,y,ok",
+    "m,d,y,ok",
     [
-        ("6", "1962", (6, 1962)),
-        ("06", "1826", (6, 1826)),
-        ("10", "2026", (10, 2026)),
-        ("11", "2026", None),  # future month
-        ("13", "1962", None),
-        ("0", "1962", None),
-        ("x", "1962", None),
-        ("6", "62", None),
-        ("6", "1825", None),
-        ("6", "2027", None),
-        ("", "", None),
-        ("6.5", "1962", None),
+        ("6", "", "1962", (6, None, 1962)),
+        ("06", "", "1826", (6, None, 1826)),
+        ("10", "", "2026", (10, None, 2026)),
+        ("11", "", "2026", None),  # future month
+        ("13", "", "1962", None),
+        ("0", "", "1962", None),
+        ("x", "", "1962", None),
+        ("6", "", "62", None),
+        ("6", "", "1825", None),
+        ("6", "", "2027", None),
+        ("", "", "", None),
+        ("6.5", "", "1962", None),
+        # Day
+        ("6", "15", "1962", (6, 15, 1962)),
+        ("6", " 05 ", "1962", (6, 5, 1962)),
+        ("6", "30", "1962", (6, 30, 1962)),
+        ("6", "31", "1962", None),  # June has 30 days
+        ("2", "29", "1962", None),  # not a leap year
+        ("2", "29", "1964", (2, 29, 1964)),
+        ("2", "29", "1900", None),  # 1900 was not a leap year
+        ("6", "0", "1962", None),
+        ("6", "x", "1962", None),
+        ("6", "1.5", "1962", None),
+        ("10", "18", "2026", (10, 18, 2026)),  # today
+        ("10", "19", "2026", None),  # future day
     ],
 )
-def test_validate(m: str, y: str, ok: tuple[int, int] | None) -> None:
+def test_validate(m: str, d: str, y: str, ok: tuple[int, int | None, int] | None) -> None:
     if ok is None:
         with pytest.raises(dl.DateInputError):
-            dl.validate(m, y, TODAY)
+            dl.validate(m, d, y, TODAY)
     else:
-        assert dl.validate(m, y, TODAY) == ok
+        assert dl.validate(m, d, y, TODAY) == ok
 
 
 def test_new_value_rules() -> None:
     assert dl.new_value(None, 6, 1962) == datetime(1962, 6, 1, 12)
     assert dl.new_value(datetime(2001, 1, 31, 8, 30, 5), 2, 1962) == datetime(1962, 2, 28, 8, 30, 5)
     assert dl.new_value(datetime(2001, 1, 31, 8, 30, 5), 2, 1964) == datetime(1964, 2, 29, 8, 30, 5)
+    # With a day: that exact day, keeping the time of day (noon if there was no date)
+    assert dl.new_value(None, 6, 1962, 15) == datetime(1962, 6, 15, 12)
+    assert dl.new_value(datetime(2001, 1, 31, 8, 30, 5), 2, 1962, 14) == datetime(1962, 2, 14, 8, 30, 5)
     assert dl.format_exif(datetime(1899, 12, 1, 12)) == "1899:12:01 12:00:00"
     assert dl.format_display(datetime(1962, 6, 15, 12)) == "1962-06-15 12:00:00"
 

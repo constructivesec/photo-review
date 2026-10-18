@@ -221,6 +221,11 @@ class MainWindow(QMainWindow):
         self.month_edit.setPlaceholderText("MM")
         self.month_edit.setMaximumWidth(60)
         self.month_edit.setAccessibleName("Month")
+        self.day_edit = QLineEdit()
+        self.day_edit.setPlaceholderText("DD")
+        self.day_edit.setMaximumWidth(60)
+        self.day_edit.setAccessibleName("Day")
+        self.day_edit.setToolTip("Day of the month. Leave blank to keep the stored day.")
         self.year_edit = QLineEdit()
         self.year_edit.setPlaceholderText("YYYY")
         self.year_edit.setMaximumWidth(80)
@@ -231,6 +236,7 @@ class MainWindow(QMainWindow):
         self.save_date_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.save_date_btn.clicked.connect(self.do_save_date)
         self.month_edit.returnPressed.connect(self.do_save_date)
+        self.day_edit.returnPressed.connect(self.do_save_date)
         self.year_edit.returnPressed.connect(self.do_save_date)
         self.stored_date = QLabel("Stored date: –")
         self.stored_date.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -239,6 +245,8 @@ class MainWindow(QMainWindow):
         self.date_mismatch.hide()
         date_row.addWidget(QLabel("Month:"))
         date_row.addWidget(self.month_edit)
+        date_row.addWidget(QLabel("Day:"))
+        date_row.addWidget(self.day_edit)
         date_row.addWidget(QLabel("Year:"))
         date_row.addWidget(self.year_edit)
         date_row.addWidget(self.approx_box)
@@ -391,6 +399,7 @@ class MainWindow(QMainWindow):
         self.undo_btn.setEnabled(bool(m.undo) and not self.busy)
         for w in (
             self.month_edit,
+            self.day_edit,
             self.year_edit,
             self.approx_box,
             self.save_date_btn,
@@ -693,7 +702,7 @@ class MainWindow(QMainWindow):
             self.info_dims.setText(f"{w} × {h} ({w * h / 1_000_000:.1f} MP)")
 
     def _clear_fields(self) -> None:
-        for e in (self.month_edit, self.year_edit, self.caption_edit, self.tag_edit):
+        for e in (self.month_edit, self.day_edit, self.year_edit, self.caption_edit, self.tag_edit):
             e.clear()
         self.caption_edit.setPlaceholderText("")
         self.stored_date.setText("Stored date: –")
@@ -727,6 +736,7 @@ class MainWindow(QMainWindow):
         eff = meta.date
         if eff.value is not None:
             self.month_edit.setText(str(eff.value.month))
+            self.day_edit.setText(str(eff.value.day))
             self.year_edit.setText(str(eff.value.year))
             self.stored_date.setText(f"Stored date: {date_logic.format_display(eff.value)}")
         else:
@@ -873,15 +883,16 @@ class MainWindow(QMainWindow):
         meta = self._current_meta()
         if meta is None:
             return
-        month, year, approx = self.month_edit.text(), self.year_edit.text(), self.approx_box.isChecked()
+        month, day, year = self.month_edit.text(), self.day_edit.text(), self.year_edit.text()
+        approx = self.approx_box.isChecked()
         try:
-            date_logic.validate(month, year)
+            date_logic.validate(month, day, year)
         except date_logic.DateInputError as exc:
             self.show_status(str(exc), error=True)  # nothing is written
             return
         create = self.config.set_create_date
         self.run_job(
-            lambda et, rp: actions.save_date(et, meta, month, year, approx, create),
+            lambda et, rp: actions.save_date(et, meta, month, day, year, approx, create),
             self._edit_done("date", meta, "Date saved."),
         )
 

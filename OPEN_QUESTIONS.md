@@ -1,6 +1,6 @@
 # Open Questions
 
-Status: all 26 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
+Status: all 27 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
 the original questions follow for reference. New ambiguities are added at the end.
 
 ## Decisions
@@ -32,6 +32,7 @@ the original questions follow for reference. New ambiguities are added at the en
 | 24 | Known camera placeholder text (for example "NOVATEK CAMERA") is never shown as a caption placeholder; files are unchanged. |
 | 25 | Scan dates stay as written: the user corrects them by hand. Revisit after use. |
 | 26 | The owner's test pictures are committed in `tests/fixtures/owner/` and tested in CI. |
+| 27 | Owner request (2026-10-18, changes spec 9): a Day field between Month and Year (Month / Day / Year). It shows the stored day. Interpretation: Day is optional; blank keeps the previous rule (stored day clamped to the month, or day 1 if undated); a given day must exist in that month and not be in the future; the stored time of day is kept (12:00:00 if undated). |
 
 ## Original questions
 

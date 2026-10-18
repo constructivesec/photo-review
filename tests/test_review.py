@@ -96,7 +96,7 @@ def test_undated_filter_and_date_save_leaves_list(et: md.ExifToolSession, folder
     m = load(et, folder, "name_asc", undated_only=True)
     assert names(m) == ["no_date.jpg", "zero_date.jpg"] and m.total == 2
     meta = cur(et, m)
-    r = actions.save_date(et, meta, "6", "1962", approximate=True, set_create_date=False, today=TODAY)
+    r = actions.save_date(et, meta, "6", "", "1962", approximate=True, set_create_date=False, today=TODAY)
     assert m.applied_edit("date", r.path, r.snapshot or {}, r.meta)
     assert names(m) == ["zero_date.jpg"] and m.total == 1 and m.current == folder / "zero_date.jpg"
     # Undo restores it to the filtered list at its position
@@ -111,7 +111,7 @@ def test_edits_never_reorder(et: md.ExifToolSession, folder: Path) -> None:
     m = load(et, folder, "date")
     before = list(m.order)
     m.go_to(folder / "no_date.jpg")
-    r = actions.save_date(et, cur(et, m), "1", "1850", True, False, TODAY)
+    r = actions.save_date(et, cur(et, m), "1", "", "1850", True, False, TODAY)
     m.applied_edit("date", r.path, r.snapshot or {}, r.meta)
     assert m.order == before
 
@@ -232,8 +232,10 @@ def test_date_edit_rules_and_undo(et: md.ExifToolSession, folder: Path) -> None:
     m = load(et, folder)
     m.go_to(folder / "lightroom.jpg")  # 2015-12-25 09:15:00
     with pytest.raises(date_logic.DateInputError):
-        actions.save_date(et, cur(et, m), "2", "abc", False, False, TODAY)
-    r = actions.save_date(et, cur(et, m), "2", "1962", approximate=False, set_create_date=False, today=TODAY)
+        actions.save_date(et, cur(et, m), "2", "", "abc", False, False, TODAY)
+    r = actions.save_date(
+        et, cur(et, m), "2", "", "1962", approximate=False, set_create_date=False, today=TODAY
+    )
     assert r.meta.get(md.EXIF_DTO) == "1962:02:25 09:15:00"
     assert r.meta.get(md.PS_DATE_CREATED) == "1962:02:25 09:15:00"
     m.applied_edit("date", r.path, r.snapshot or {}, r.meta)
@@ -247,7 +249,7 @@ def test_date_edit_rules_and_undo(et: md.ExifToolSession, folder: Path) -> None:
 def test_undo_restores_zero_date(et: md.ExifToolSession, folder: Path) -> None:
     m = load(et, folder)
     m.go_to(folder / "zero_date.jpg")
-    r = actions.save_date(et, cur(et, m), "6", "1962", True, False, TODAY)
+    r = actions.save_date(et, cur(et, m), "6", "", "1962", True, False, TODAY)
     m.applied_edit("date", r.path, r.snapshot or {}, r.meta)
     u = actions.undo(et, m.undo[-1])
     assert u.meta.get(md.EXIF_DTO) == "0000:00:00 00:00:00" and u.meta.date.undated
@@ -282,3 +284,23 @@ def test_config_round_trip_and_corrupt(tmp_path: Path) -> None:
     assert (tmp_path / "config.bad").exists() and not p.exists()
     p.write_text('{"show_gps": "yes"}', encoding="utf-8")
     assert Config.load(p) == Config()
+
+
+def test_date_edit_with_day(et: md.ExifToolSession, folder: Path) -> None:
+    m = load(et, folder)
+    m.go_to(folder / "lightroom.jpg")  # 2015-12-25 09:15:00
+    r = actions.save_date(
+        et, cur(et, m), "7", "4", "1962", approximate=False, set_create_date=False, today=TODAY
+    )
+    for tag in (md.EXIF_DTO, md.XMP_DTO, md.PS_DATE_CREATED):
+        assert r.meta.get(tag) == "1962:07:04 09:15:00", tag
+    m.go_to(folder / "no_date.jpg")
+    r = actions.save_date(
+        et, cur(et, m), "12", "1", "1899", approximate=True, set_create_date=False, today=TODAY
+    )
+    assert r.meta.get(md.EXIF_DTO) == "1899:12:01 12:00:00"
+    before = (folder / "june_1962.jpg").read_bytes()
+    m.go_to(folder / "june_1962.jpg")
+    with pytest.raises(date_logic.DateInputError):
+        actions.save_date(et, cur(et, m), "2", "30", "1962", True, False, TODAY)
+    assert (folder / "june_1962.jpg").read_bytes() == before  # nothing written on invalid input

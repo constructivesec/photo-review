@@ -78,14 +78,15 @@ def save_date(
     et: md.ExifToolSession,
     meta: md.PhotoMeta,
     month_text: str,
+    day_text: str,
     year_text: str,
     approximate: bool,
     set_create_date: bool,
     today: date | None = None,
 ) -> ActionResult:
     """Validate (raises DateInputError; nothing written), then write all date fields in one call."""
-    month, year = date_logic.validate(month_text, year_text, today)
-    value = date_logic.new_value(meta.date.value, month, year)
+    month, day, year = date_logic.validate(month_text, day_text, year_text, today)
+    value = date_logic.new_value(meta.date.value, month, year, day)
     plan = md.plan_date(meta, date_logic.format_exif(value), approximate, set_create_date)
     res = file_ops.write(et, meta, plan)
     return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot)
