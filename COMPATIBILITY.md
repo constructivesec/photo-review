@@ -13,19 +13,25 @@ For every case it checks: values read back exactly, decoded pixels identical (al
 embedded thumbnails/previews byte-identical, no non-edited tag changed or removed, and the file
 modification time preserved.
 
-| Sample | Passed | Failures |
-|---|---|---|
-| exif_no_xmp.jpg (generated, camera EXIF) | 14/15 | XPComment emoji (see below) |
-| lightroom.jpg (generated, Lightroom-style XMP) | 14/15 | XPComment emoji |
-| no_metadata.png (generated) | 15/15 | none |
-| scan.tif (generated, single page) | 15/15 | none |
-| multipage.tif (generated, 3 pages) | 15/15 | none |
-| legacy_iptc_latin1.jpg (generated, Latin-1 IPTC, no charset) | 2/15 | existing IPTC text corrupted (see below) |
-| iphone.heic (generated with pillow-heif) | 15/15 | none |
-| Real Canon EOS 40D JPEG (exif-samples) | 14/15 | XPComment emoji |
-| Real iPhone 11 Pro Max HEIC (exif-samples, 2566x3313) | 15/15 | none |
+**First run: 119/135.** Two real failures (findings 3 and 9), both resolved by decisions Q1 and Q21.
 
-Totals: 119/135. All failures come from findings 3 and 9 below.
+**Current run, with both fixes: 195/195.**
+
+| Sample | Passed |
+|---|---|
+| exif_no_xmp.jpg (generated, camera EXIF) | 15/15 |
+| lightroom.jpg (generated, Lightroom-style XMP) | 15/15 |
+| no_metadata.png (generated) | 15/15 |
+| scan.tif (generated, single page) | 15/15 |
+| multipage.tif (generated, 3 pages) | 15/15 |
+| legacy_iptc_latin1.jpg (generated, Latin-1 IPTC, no charset) | 15/15 |
+| iphone.heic (generated with pillow-heif) | 15/15 |
+| Real Canon EOS 40D JPEG (public sample) | 15/15 |
+| Real iPhone 11 Pro Max HEIC (public sample) | 15/15 |
+| Owner's iPhone 11 HEIC (4032x3024, Display P3, rotated) | 15/15 |
+| Owner's print scan JPEG | 15/15 |
+| Owner's slide scan JPEG | 15/15 |
+| Owner's program scan PNG (received as WebP, converted losslessly) | 15/15 |
 
 ### Findings
 1. **TIFF writes are safe** (single and multi-page): pixels of all pages unchanged, all values
@@ -33,7 +39,8 @@ Totals: 119/135. All failures come from findings 3 and 9 below.
 2. **Pre-1970 dates** (1962, 1899) round-trip in JPEG, PNG, TIFF and HEIC in all three date fields.
 3. **XPComment cannot hold emoji or other characters outside the Basic Multilingual Plane.**
    ExifTool encodes XP tags as UCS-2 (`Image::ExifTool::Exif`, `Encode($val,"UCS2","II")`), so 😀
-   is stored as U+F600. All other fields store emoji correctly. Decision needed (OPEN_QUESTIONS.md Q1).
+   is stored as U+F600. **Resolved (Q1):** `photo_review/resources/exiftool_config.pl` redefines
+   XPComment as UTF-16 with surrogate pairs; the stored bytes are verified to be UTF-16LE.
 4. **Hostile strings are safe**: values starting with `-`, `@`, `<`, `#`, with quotes, newlines,
    backslashes and padding round-trip exactly through the argfile (`#[CSTR]` encoding).
 5. **IPTC over 2000 bytes**: the app must truncate the IPTC copy itself (done in the spike at a
@@ -49,7 +56,13 @@ Totals: 119/135. All failures come from findings 3 and 9 below.
 9. **Writing IPTC as UTF-8 corrupts existing Latin-1 IPTC text.** Older software stored IPTC in
    Latin-1 without declaring a character set. Setting `CodedCharacterSet=UTF8` (spec section 7)
    makes the untouched By-line "Müller" read back as "M?ller" (and City "Zürich" as "Z?rich").
-   Every case that writes IPTC failed on that file. Decision needed (OPEN_QUESTIONS.md Q21).
+   Every case that writes IPTC failed on that file. **Resolved (Q21):** existing IPTC text is
+   re-written as UTF-8 in the same call (`-charset iptc=Latin -tagsFromFile @ -IPTC:all`,
+   excluding the IPTC tags being edited).
+10. **`-P` keeps the modification time only to the second.** The app restores the exact
+    (nanosecond) modification time after each write.
+11. **ExifTool JSON emits number-like text unquoted** (a caption "1.50" would read back as 1.5).
+    The app parses numbers as their exact text.
 
 ## 2. Manual checks (spec 17, step 2): PENDING, needs Windows and macOS
 

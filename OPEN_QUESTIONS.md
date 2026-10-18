@@ -1,5 +1,36 @@
 # Open Questions
 
+Status: all 22 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
+the original questions follow for reference. New ambiguities are added at the end.
+
+## Decisions
+| # | Decision |
+|---|---|
+| 1 | Bundle an ExifTool config that redefines XPComment as UTF-16 (surrogate pairs). Verified: emoji round-trip and the stored bytes are UTF-16LE. |
+| 2 | Owner supplied own samples (iPhone HEIC; scans as JPG/PNG). Not committed until the owner confirms, because the repository is public. |
+| 3 | KEEP never changes ratings 2 to 5, in either view. |
+| 4 | Date taken: oldest first only, undated last. Rating: highest first. Ties by filename. |
+| 5 | Ignore timezone offsets when comparing and displaying; never write offsets. |
+| 6 | As written: only EXIF and XMP-exif DateTimeOriginal count. |
+| 7 | Reject a month later than the current month in the current year. |
+| 8 | As written. |
+| 9 | Mirror off: legacy caption fields are left untouched. |
+| 10 | Keywords from other apps are left untouched: shown as read-only chips, never modified or removed. |
+| 11 | Tags limited to 64 bytes of UTF-8. |
+| 12 | Case-insensitive duplicates keep the XMP spelling. |
+| 13 | Export settings in the export dialog; a small Settings dialog for "Mirror to legacy fields" and "Also set CreateDate". |
+| 14 | Export copies JPEGs byte-for-byte when no change is needed (upright, sRGB, no burned caption). |
+| 15 | Prefix off: name collisions get a numeric suffix, listed in the summary. |
+| 16 | Non-empty output folder: "Choose another folder" or "Cancel". |
+| 17 | captions.csv tags column `; `-separated, excluding `status:` and `date:` tags. |
+| 18 | Photos that fail to export are skipped and listed in the summary. |
+| 19 | PNG with an embedded profile is converted to sRGB on export, like JPEG. |
+| 20 | Changed-on-disk check fails: reload, tell the user, cancel the action. |
+| 21 | Legacy Latin-1 IPTC is re-written as UTF-8 in the same call (`-charset iptc=Latin -tagsFromFile @ -IPTC:all`, excluding the edited IPTC tags). Verified. |
+| 22 | macOS uses the system Perl with the bundled Image-ExifTool; startup check with a clear error. |
+
+## Original questions
+
 Ambiguities found in the specification, each with a recommended answer. Reply with answers,
 or "use recommendations" for any you agree with. Work that depends on an open question is on hold.
 

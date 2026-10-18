@@ -10,3 +10,4 @@ venv/
 vendor/
 # Spike output (regenerate with: python spike/spike.py)
 spike/out/
+tests/fixtures/real/

@@ -176,6 +176,13 @@ def run_case(et: ExifToolSession, src: Path, work: Path, case: str, steps: Steps
     before_pixels, before = pixel_digest(p), dump(et, p)
     before_embedded = embedded_images(et, p, before)
     calls, edited, expected = steps(p, kind(p), before)
+    # Decision Q21 (same as photo_review.metadata._iptc_prefix): legacy IPTC without a UTF-8
+    # declaration is converted in the same call, excluding the IPTC tags being edited.
+    legacy = any(k.startswith("IPTC:") for k in before) and "IPTC:CodedCharacterSet" not in before
+    if legacy and any("-IPTC:" in a for a in calls[0]):
+        convert = ["-charset", "iptc=Latin", "-tagsFromFile", "@", "-IPTC:all"]
+        convert += ["--IPTC:Caption-Abstract", "--IPTC:Keywords", "--IPTC:CodedCharacterSet"]
+        calls[0] = convert + calls[0]
     try:
         for args in calls:
             et.write(p, args)
@@ -224,7 +231,7 @@ def case_full_write(p: Path, fmt: str, before: dict, date: str = DATE_1962):
     s, sk = subject_args(fmt, TAGS)
     d, dk = date_args(date)
     expected: dict[str, object] = {
-        "XMP-xmp:Rating": 1,
+        "XMP-xmp:Rating": "1",
         "XMP-dc:Description": CAPTION,
         "IFD0:ImageDescription": CAPTION,
         "XMP-dc:Subject": TAGS,
@@ -252,7 +259,7 @@ def case_archive_then_keep(p: Path, fmt: str, before: dict):
     return (
         [archive, keep],
         {"XMP-xmp:Rating", "XMP-dc:Subject"},
-        {"XMP-xmp:Rating": 1, "XMP-dc:Subject": other or None},
+        {"XMP-xmp:Rating": "1", "XMP-dc:Subject": other or None},
     )
 
 
@@ -262,7 +269,7 @@ def case_archive(p: Path, fmt: str, before: dict):
     return (
         [archive, archive],
         {"XMP-xmp:Rating", "XMP-dc:Subject"},
-        {"XMP-xmp:Rating": -1, "XMP-dc:Subject": existing_subject(before) + ["status:archive"]},
+        {"XMP-xmp:Rating": "-1", "XMP-dc:Subject": existing_subject(before) + ["status:archive"]},
     )
 
 
