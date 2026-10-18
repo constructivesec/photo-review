@@ -9,6 +9,7 @@ tabs, leading or trailing spaces, a leading '#') are sent as "#[CSTR]" C-string 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -21,6 +22,7 @@ import exiftool  # PyExifTool
 
 from . import date_logic, tag_logic
 
+log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
 RESOURCES = Path(getattr(sys, "_MEIPASS", ROOT)) / "photo_review" / "resources"
 CONFIG_FILE = RESOURCES / "exiftool_config.pl"
@@ -225,7 +227,12 @@ class ExifToolSession:
     def write(self, path: Path | str, args: Sequence[str]) -> str:
         """Write all assignments to one file in one ExifTool call (-overwrite_original -P)."""
         before = os.stat(path)
-        out = self.execute(*WRITE_FLAGS, *args, str(path))
+        try:
+            out = self.execute(*WRITE_FLAGS, *args, str(path))
+        except MetadataError as exc:
+            raise MetadataError(redact(str(exc), _values(args))) from None
+        if self.last_warnings:
+            log.info("ExifTool: %s (%s)", redact(self.last_warnings, _values(args)), path)
         if "1 image files updated" not in out and "1 image files unchanged" not in out:
             raise MetadataError(out.strip() or "ExifTool did not update the file")
         # -P keeps the modification time to the second; restore the exact value.
@@ -520,6 +527,15 @@ def restore_plan(meta: PhotoMeta, snap: Snapshot) -> WritePlan:
         else:
             args.append(f"-{tag}={value}")
     return WritePlan(args, tuple(snap))
+
+
+def _values(args: Sequence[str]) -> list[str]:
+    """The text values in "-TAG=value" style arguments (for redaction)."""
+    out = []
+    for a in args:
+        if a.startswith("-") and "=" in a:
+            out.append(a.split("=", 1)[1])
+    return out
 
 
 def redact(text: str, secrets: Iterable[str]) -> str:
