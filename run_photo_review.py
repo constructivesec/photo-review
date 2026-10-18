@@ -1,4 +1,4 @@
-"""Launcher script (used by PyInstaller and for running from source)."""
+"""Launcher used by PyInstaller."""
 
 import sys
 

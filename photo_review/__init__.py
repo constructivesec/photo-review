@@ -1,3 +1,3 @@
-"""Photo Review: quickly cull a folder of photos."""
+"""Photo Library Curation App."""
 
-__version__ = "1.0.0"
+__version__ = "0.1.0"

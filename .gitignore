@@ -1,8 +1,13 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 build/
 dist/
-*.egg-info/
 .venv/
 venv/
+# Fetched by tools/fetch_exiftool.py (pinned version + checksum)
+vendor/
+# Spike output (regenerate with: python spike/spike.py)
+spike/out/
+tests/fixtures/real/

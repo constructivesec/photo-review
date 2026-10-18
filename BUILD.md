@@ -1,68 +1,81 @@
-# Building standalone apps
+# Building Photo Review
 
-PyInstaller cannot cross-compile: build the Windows `.exe` on Windows and the
-macOS `.app` on macOS. Both use the same spec file, `photo_review.spec`, which:
+PyInstaller cannot cross-compile: build the Windows `.exe` on Windows and the macOS `.app` on a
+Mac. Both use `photo_review.spec`.
 
-- bundles `photo_review/resources` (the DejaVu Sans caption font and its license),
-- collects `pillow_heif` including its native libheif/libde265 libraries (HEIC support),
-- builds a single-file `PhotoReview.exe` on Windows and a `PhotoReview.app` bundle on macOS.
+## What gets bundled
+
+| Item | Source | Notes |
+|---|---|---|
+| ExifTool 13.59 | `tools/fetch_exiftool.py` downloads it from exiftool.org (falling back to ExifTool's SourceForge mirror) and **verifies its SHA-256** against the pinned value | Windows: the standalone `exiftool-13.59_64.zip` (`exiftool.exe` plus its `exiftool_files` folder). macOS: the Perl distribution `Image-ExifTool-13.59.tar.gz` (script plus `lib/`). Bundled into `exiftool/` inside the app. |
+| ExifTool config | `photo_review/resources/exiftool_config.pl` | Stores the Windows comment (XPComment) as UTF-16 so emoji survive (decision Q1). |
+| Caption font | `photo_review/resources/fonts/DejaVuSans.ttf` | DejaVu Sans, Bitstream Vera license (`LICENSE-DejaVu.txt`); redistribution allowed. |
+| HEIC support | `pillow-heif` (libheif, libde265 and friends) | Collected with `collect_all("pillow_heif")`. |
+
+Pinned checksums (from ExifTool's `checksums-13.59.txt`):
+
+```
+exiftool-13.59_64.zip        44b512b25af500724ba579d0a53c8fc5851628b692dd5e5d94ae4a15c2cba9ec
+Image-ExifTool-13.59.tar.gz  668ea3acececb7235fbd0f4900e72d5f12c9b07e5c778fd36cb1e9b5828fd65a
+```
+
+Compare these once with https://exiftool.org/checksums.txt. ExifTool 13.59 is well past 12.24,
+the first release fixing CVE-2021-22204. The version is shown in **Help > About**.
+
+### macOS: system Perl (decision Q22)
+
+The Mac build uses the **system Perl** (`/usr/bin/perl`, included with macOS) to run the bundled
+ExifTool; Perl itself is not bundled. Apple has said scripting runtimes may be removed from a
+future macOS. If that happens, the app shows "Perl was not found" at startup; the fix is to
+install Perl (for example with Homebrew) or switch to bundling a Perl runtime.
 
 ## Windows
 
 ```powershell
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
+python tools\fetch_exiftool.py --platform windows
 python -m pytest
 pyinstaller --noconfirm --clean photo_review.spec
 ```
 
-Output: `dist\PhotoReview.exe`. Copy it anywhere and double-click to run.
-Optionally add an icon by passing `icon="photo_review.ico"` to `EXE(...)` in the spec.
+Output: `dist\PhotoReview.exe`, a single file. It unpacks itself to a temporary folder at each
+start, so the first window takes a few seconds to appear.
+
+**SmartScreen:** an unsigned `.exe` downloaded from the internet triggers "Windows protected your
+PC". Choose **More info > Run anyway**. Signing the exe with a code-signing certificate
+(`signtool sign /fd SHA256 /a dist\PhotoReview.exe`) removes the warning over time.
 
 ## macOS
 
 ```bash
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
+python tools/fetch_exiftool.py --platform unix
 python -m pytest
 pyinstaller --noconfirm --clean photo_review.spec
 ```
 
-Output: `dist/PhotoReview.app`. Drag it to Applications.
+Output: `dist/PhotoReview.app`. Build on the oldest macOS you want to support, on the CPU type you
+target (Apple Silicon or Intel).
 
-Notes:
-- Build on the oldest macOS version you want to support, and on the CPU type you
-  target (Apple Silicon builds run on Apple Silicon; build on Intel or use a
-  universal2 Python for Intel Macs).
-- Unsigned apps are blocked by Gatekeeper on first launch. For internal use,
-  right-click the app and choose **Open**. For distribution, sign and notarize:
-
-  ```bash
-  codesign --deep --force --options runtime --sign "Developer ID Application: <Team>" dist/PhotoReview.app
-  ditto -c -k --keepParent dist/PhotoReview.app PhotoReview.zip
-  xcrun notarytool submit PhotoReview.zip --keychain-profile <profile> --wait
-  xcrun stapler staple dist/PhotoReview.app
-  ```
-
-## Equivalent command line (without the spec file)
-
-PyInstaller 6+ accepts `:` as the `--add-data` separator on all platforms.
+**Gatekeeper:** an unsigned app is blocked on first launch ("cannot be opened because the
+developer cannot be verified"). Right-click the app, choose **Open**, then **Open** again; or
+allow it in **System Settings > Privacy & Security**. For distribution, sign and notarize:
 
 ```bash
-pyinstaller --noconfirm --clean --windowed --name PhotoReview \
-  --add-data "photo_review/resources:photo_review/resources" \
-  --collect-all pillow_heif \
-  run_photo_review.py
+codesign --deep --force --options runtime --sign "Developer ID Application: <name>" dist/PhotoReview.app
+ditto -c -k --keepParent dist/PhotoReview.app PhotoReview.zip
+xcrun notarytool submit PhotoReview.zip --keychain-profile <profile> --wait
+xcrun stapler staple dist/PhotoReview.app
 ```
-
-Add `--onefile` on Windows for a single `.exe`.
 
 ## Checking a build
 
-1. Launch the app and open a folder containing a `.heic` photo: it should display.
-2. Submit a caption: `<name>_captioned.jpg` should appear with the white text in a black bar.
-3. If HEIC photos show the "Cannot display" placeholder, pillow-heif's native
-   libraries were not bundled; rebuild with `--clean` and check the PyInstaller
-   log for `pillow_heif`.
+1. Start the app: no "ExifTool could not be started" message; **Help > About** shows ExifTool 13.59.
+2. Open a folder created with `python tools/make_fixtures.py <empty folder>`; the iPhone HEIC displays.
+3. KEEP a photo, then check it with the bundled ExifTool or Explorer/Finder: Rating = 1.
+4. Export with "Burn caption into image": the caption bar renders in DejaVu Sans.
+5. Run the manual QA checklist in README.md.
