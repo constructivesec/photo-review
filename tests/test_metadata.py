@@ -360,7 +360,10 @@ def test_date_edit_changes_nothing_else(et: ExifToolSession, fixture: Fixture) -
     assert_only_changed(before, dump(et, p), set(plan.tags))
 
 
-@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root ignores permissions")
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="folder permissions block writes only on POSIX, and not for root",
+)
 def test_read_only_file_write_fails_cleanly(et: ExifToolSession, fixture: Fixture) -> None:
     p = fixture("no_date.jpg")
     p.parent.chmod(0o555)  # ExifTool replaces the file, so a read-only folder blocks the write

@@ -54,6 +54,14 @@ def test_archive_folder_detection(tmp_path: Path) -> None:
 # ---------------------------------------------------------------- moves
 
 
+def cross_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulate a move to another volume (Windows moves with rename, other systems with link)."""
+    for name in ("link", "rename"):
+        monkeypatch.setattr(
+            os, name, lambda a, b: (_ for _ in ()).throw(OSError(errno.EXDEV, "cross-device"))
+        )
+
+
 def test_unique_name_case_insensitive(tmp_path: Path) -> None:
     (tmp_path / "Name.JPG").write_bytes(b"x")
     assert fo.unique_name(tmp_path, "name.jpg") == "name_1.jpg"
@@ -79,7 +87,7 @@ def test_move_cross_volume_copies_and_verifies(tmp_path: Path, monkeypatch: pyte
     src = tmp_path / "a.jpg"
     src.write_bytes(os.urandom(300_000))
     data = src.read_bytes()
-    monkeypatch.setattr(os, "link", lambda a, b: (_ for _ in ()).throw(OSError(errno.EXDEV, "cross-device")))
+    cross_device(monkeypatch)
     moved = fo.move(src, tmp_path / "other")
     assert not src.exists() and moved.read_bytes() == data
 
@@ -89,7 +97,7 @@ def test_move_cross_volume_verification_failure_keeps_original(
 ) -> None:
     src = tmp_path / "a.jpg"
     src.write_bytes(b"data")
-    monkeypatch.setattr(os, "link", lambda a, b: (_ for _ in ()).throw(OSError(errno.EXDEV, "cross-device")))
+    cross_device(monkeypatch)
     monkeypatch.setattr(fo, "_sha256", lambda p: str(p))
     with pytest.raises(fo.FileOpError, match="did not match"):
         fo.move(src, tmp_path / "other")
