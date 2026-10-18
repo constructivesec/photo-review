@@ -4,7 +4,7 @@ Spec: the "Photo Library Curation App: Specification" provided by the owner is t
 Do not add features outside it. Unresolved ambiguities are tracked in `OPEN_QUESTIONS.md`; ask, don't guess.
 
 ## Stack
-- Python 3.11+, PySide6 GUI. Pillow + pillow-heif for display and export only.
+- Python 3.12+ (PySide6 6.12.0 crashes on 3.11; COMPATIBILITY.md finding 14), PySide6 GUI. Pillow + pillow-heif for display and export only.
 - All EXIF/XMP/IPTC reads and writes go through ExifTool (pinned 13.59, fetched and
   checksum-verified by `tools/fetch_exiftool.py` into `vendor/exiftool/`) via PyExifTool,
   one persistent process (`photo_review/metadata.py`).

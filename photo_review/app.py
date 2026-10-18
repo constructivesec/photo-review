@@ -28,6 +28,10 @@ def setup_logging(folder: Path) -> Path:
 
 
 def main() -> int:
+    if sys.version_info < (3, 12):  # noqa: UP036 - guards source runs on an unsupported Python
+        # PySide6 6.12.0 over-releases None/True on Python 3.11 and eventually crashes the interpreter.
+        print("Photo Review needs Python 3.12 or newer.", file=sys.stderr)
+        return 1
     from PySide6.QtCore import QEvent, QLockFile
     from PySide6.QtWidgets import QApplication, QMessageBox
 

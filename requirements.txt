@@ -1,4 +1,5 @@
-# Runtime dependencies (exact pins). Tested on Python 3.13; requires Python 3.11+.
+# Runtime dependencies (exact pins). Requires Python 3.12+: PySide6 6.12.0 over-releases None/True
+# on Python 3.11, which crashes the interpreter (see COMPATIBILITY.md finding 14).
 PySide6==6.12.0
 pillow==12.3.0
 pillow-heif==1.8.1

@@ -107,9 +107,10 @@ def test_move_cross_volume_verification_failure_keeps_original(
 def test_move_permission_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     src = tmp_path / "a.jpg"
     src.write_bytes(b"data")
-    monkeypatch.setattr(
-        os, "link", lambda a, b: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied"))
-    )
+    for name in ("link", "rename"):  # Windows moves with rename, other systems with link
+        monkeypatch.setattr(
+            os, name, lambda a, b: (_ for _ in ()).throw(PermissionError(errno.EACCES, "denied"))
+        )
     with pytest.raises(fo.FileOpError, match="permission denied"):
         fo.move(src, tmp_path / "other")
     assert src.exists()

@@ -32,7 +32,7 @@ install Perl (for example with Homebrew) or switch to bundling a Perl runtime.
 ## Windows
 
 ```powershell
-py -3.11 -m venv .venv
+py -3.12 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
 python tools\fetch_exiftool.py --platform windows
@@ -50,7 +50,7 @@ PC". Choose **More info > Run anyway**. Signing the exe with a code-signing cert
 ## macOS
 
 ```bash
-python3.11 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 python tools/fetch_exiftool.py --platform unix

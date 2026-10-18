@@ -11,7 +11,7 @@ photo book sites such as Mixbook and Shutterfly.
 
 ## Install and run
 
-Standalone builds: see [BUILD.md](BUILD.md). From source (Python 3.11 or newer):
+Standalone builds: see [BUILD.md](BUILD.md). From source (Python 3.12 or newer; Python 3.11 is not supported because of a crash in PySide6 on 3.11):
 
 ```bash
 python -m venv .venv

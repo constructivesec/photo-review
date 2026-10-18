@@ -61,7 +61,12 @@ modification time preserved.
     "NOVATEK CAMERA", and the **scan** date as DateTimeOriginal (2017). See OPEN_QUESTIONS.md Q23-Q25.
 13. **Facebook's "c2" colour profile** is sRGB under another name (primaries and white point match
     sRGB within 0.0002). Export now recognises sRGB by primaries, so these JPEGs are copied unchanged.
-
+14. **PySide6 6.12.0 crashes on Python 3.11.** Ordinary calls such as `setEnabled()` release `None`
+    one time too many (measured: -198 references per 100 calls), and `restoreOverrideCursor()` does the
+    same. On Python 3.11 this soon ends in "Fatal Python error: none_dealloc/bool_dealloc"; Python 3.12
+    made these objects immortal, so the bug is harmless there. Reproduced 3/3 on 3.11 and clean 3/3 on
+    3.12 with the UI tests. The app therefore requires Python 3.12+ (the spec's "3.11+" allows it) and
+    CI and the builds use 3.12.
 
 ## 2. Manual checks (spec 17, step 2): PENDING, needs Windows and macOS
 
