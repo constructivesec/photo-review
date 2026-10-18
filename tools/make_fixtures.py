@@ -224,6 +224,8 @@ def make(out: Path, size: tuple[int, int], real_samples: Path | None) -> list[Pa
         made.append(p)
         srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
         jpg("with_icc_profile.jpg", (180, 40, 120), icc_profile=srgb)
+        # Stored sideways with EXIF Orientation 6 (display = rotate 90 CW)
+        jpg("rotated_exif6.jpg", (30, 60, 160), ["-IFD0:Orientation#=6", "-XMP-dc:Description=Rotated"])
 
         # Ignored files
         (out / "Thumbs.db").write_bytes(b"\x00" * 64)
