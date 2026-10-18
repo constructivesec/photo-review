@@ -154,6 +154,28 @@ def test_save_date_and_validation(window: MainWindow, folder: Path) -> None:
     settle(window)
     assert window.stored_date.text() == "Stored date: 1962-06-01 12:00:00"
     assert QApplication.focusWidget() is window.view
+    assert (window.month_edit.text(), window.day_edit.text(), window.year_edit.text()) == ("6", "1", "1962")
+    window.day_edit.setText("31")  # June has 30 days
+    window.do_save_date()
+    settle(window)
+    assert "1 to 30" in window.status.text()
+    window.day_edit.setText("15")
+    window.do_save_date()
+    settle(window)
+    assert window.stored_date.text() == "Stored date: 1962-06-15 12:00:00"
+    assert window.day_edit.text() == "15"
+
+
+def test_date_fields_order_and_display(window: MainWindow, folder: Path) -> None:
+    month, day, year = (
+        w.mapTo(window, w.rect().topLeft()) for w in (window.month_edit, window.day_edit, window.year_edit)
+    )
+    assert month.y() == day.y() == year.y()  # one row
+    assert month.x() < day.x() < year.x()  # Month / Day / Year
+    window.model.go_to(folder / "lightroom.jpg")
+    window.show_current()
+    settle(window)
+    assert (window.month_edit.text(), window.day_edit.text(), window.year_edit.text()) == ("12", "25", "2015")
 
 
 def test_tags_add_reject_remove(window: MainWindow) -> None:

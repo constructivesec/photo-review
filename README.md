@@ -38,10 +38,12 @@ On macOS the bundled ExifTool runs on the Perl that ships with macOS (`/usr/bin/
 | Info | `I` | Shows device, GPS, shutter speed, aperture, ISO and focal length. |
 | Refresh | `F5` | Rescans the folder. |
 
-- **Date:** type the month (1 to 12) and the four-digit year, then press **Save Date** or Enter.
-  Tick **Approximate date** if you are not sure (it is ticked automatically for photos without
-  a date). A photo that already had a date keeps its day and time of day. "Stored date" shows
-  the full value saved in the file; a warning appears if the photo's two date fields disagree.
+- **Date:** type the month (1 to 12), the day and the four-digit year, then press **Save Date**
+  or Enter. The day is optional: leave it blank to keep the stored day (or day 1 for a photo
+  without a date). Tick **Approximate date** if you are not sure (it is ticked automatically for
+  photos without a date). The time of day already stored is kept (12:00:00 for a photo without a
+  date). "Stored date" shows the full value saved in the file; a warning appears if the photo's
+  two date fields disagree.
 - **Caption:** type it and press **Save Caption**. Unsaved text is discarded when you move to
   another photo. Grey text in the box is an older caption found in another field; saving
   replaces it. Text that cameras and scanners fill in automatically (such as "NOVATEK CAMERA")
@@ -115,8 +117,9 @@ Use `python tools/make_fixtures.py <empty folder>` to create a test folder, plus
 - [ ] Show archived: KEEP moves the photo back to the main folder; Undo returns it.
 - [ ] Caption with accents, emoji and a line break saves and reloads exactly.
 - [ ] Tags: `Person:Emma Rose` becomes `person:emma-rose`; `status:x` and `a,b` are refused.
-- [ ] Date 6 / 1962 saves; "Stored date" shows 1962-06-01 12:00:00 for an undated photo.
-- [ ] Invalid date input (13 / 1962, 6 / 62, next month) shows a message and writes nothing.
+- [ ] Date 6 / (blank) / 1962 saves; "Stored date" shows 1962-06-01 12:00:00 for an undated photo.
+- [ ] Date 6 / 15 / 1962 saves 1962-06-15; the Day field shows 15 when you come back to the photo.
+- [ ] Invalid date input (13 / 1962, 6 / 62, next month, 2 / 30 / 1962, tomorrow) shows a message and writes nothing.
 - [ ] Show undated only: saving a date removes the photo from the list; Undo restores it.
 - [ ] Sort by date: undated photos are last; editing a date does not move the photo.
 - [ ] Info panel: device shows "Scan?" for the Epson sample; GPS hidden until "Show GPS"; "Open in Maps" works.
