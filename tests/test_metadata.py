@@ -402,3 +402,22 @@ def test_real_samples(et: ExifToolSession, tmp_path: Path, action: str) -> None:
         et.write(p, md.restore_plan(read(et, p), snap).args)
         assert_only_changed(before, dump(et, p), set())
         assert Image.open(p).size
+
+
+def test_camera_placeholder_not_shown_as_caption(et: ExifToolSession, fixture: Fixture) -> None:
+    p = fixture("no_date.jpg")
+    et.write(p, ["-IFD0:ImageDescription=NOVATEK CAMERA"])
+    m = read(et, p)
+    assert m.caption_placeholder == "" and m.get(md.IMAGE_DESCRIPTION) == "NOVATEK CAMERA"
+    et.write(p, ["-IPTC:Caption-Abstract=Real old caption"])
+    assert read(et, p).caption_placeholder == "Real old caption"
+
+
+@pytest.mark.skipif(not any(p.name.startswith("owner_PICT") for p in real_samples()), reason="no slide scans")
+def test_owner_slide_scans_are_recognised(et: ExifToolSession) -> None:
+    from photo_review.ui.model import looks_like_scanner
+
+    for src in (p for p in real_samples() if p.name.startswith("owner_PICT")):
+        m = read(et, src)
+        assert looks_like_scanner(m.get("IFD0:Make") or "", m.get("IFD0:Model") or "")
+        assert m.caption_placeholder == "" and m.caption == ""

@@ -139,3 +139,22 @@ def test_history_and_suggestions() -> None:
     assert h == ["person:emma", "old"]
     assert len(tl.update_history([f"t{i}" for i in range(600)], ["new"])) == 500
     assert tl.suggestions("em", ["person:emma", "Foreign"], ["event:emmy"]) == ["person:emma", "event:emmy"]
+
+
+def test_scanner_terms() -> None:
+    from photo_review.ui.model import looks_like_scanner
+
+    assert looks_like_scanner("EPSON", "Perfection V600")
+    assert looks_like_scanner("MAKER NAME", "96660")  # owner's Novatek slide scanner (Q23)
+    assert looks_like_scanner("", "Novatek NT96660")
+    assert looks_like_scanner("Canon", "CanoScan 9000F")
+    assert not looks_like_scanner("Apple", "iPhone 11")
+    assert not looks_like_scanner("Canon", "Canon EOS 40D")
+
+
+def test_camera_placeholders() -> None:
+    from photo_review.metadata import is_camera_placeholder
+
+    for text in ["NOVATEK CAMERA", "OLYMPUS DIGITAL CAMERA", "  sony   dsc ", "EXIF_JPEG_PICTURE"]:
+        assert is_camera_placeholder(text), text
+    assert not is_camera_placeholder("Novatek camera club picnic")

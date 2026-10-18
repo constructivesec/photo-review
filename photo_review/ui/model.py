@@ -23,6 +23,25 @@ SORT_OPTIONS: list[tuple[str, str]] = [
     ("rating", "Rating (highest first)"),
 ]
 _NUM = re.compile(r"(\d+)")
+# Device names that suggest a scanner, so the date may be the scan date (spec 4; decision Q23 adds
+# the owner's Novatek-based slide scanner, which reports Make "MAKER NAME").
+SCANNER_TERMS = (
+    "epson",
+    "canoscan",
+    "fujitsu",
+    "plustek",
+    "doxie",
+    "flip-pal",
+    "flippal",
+    "scansnap",
+    "maker name",
+    "novatek",
+)
+
+
+def looks_like_scanner(make: str, model: str) -> bool:
+    device = f"{make} {model}".casefold()
+    return any(term in device for term in SCANNER_TERMS)
 
 
 def natural_key(name: str) -> list:

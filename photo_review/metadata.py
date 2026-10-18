@@ -75,6 +75,26 @@ READ_TAGS: tuple[str, ...] = (
 )
 SYSTEM_PREFIXES = ("System:", "SourceFile", "ExifTool:")
 
+# Text that cameras and scanners write into ImageDescription by default (decision Q24): never shown
+# as a caption placeholder. The files themselves are left unchanged.
+CAMERA_PLACEHOLDERS = frozenset(
+    {
+        "novatek camera",
+        "olympus digital camera",
+        "sony dsc",
+        "digital camera",
+        "konica minolta digital camera",
+        "minolta digital camera",
+        "kodak digital still camera",
+        "exif_jpeg_picture",
+        "dcim\\100media",
+    }
+)
+
+
+def is_camera_placeholder(text: str) -> bool:
+    return " ".join(text.split()).casefold() in CAMERA_PLACEHOLDERS
+
 
 class MetadataError(Exception):
     """A user-facing metadata read or write failure."""
@@ -339,7 +359,7 @@ class PhotoMeta:
             return ""
         for tag in (IMAGE_DESCRIPTION, IPTC_CAPTION):
             v = (self.get(tag) or "").strip()
-            if v:
+            if v and not is_camera_placeholder(v):
                 return v
         return ""
 

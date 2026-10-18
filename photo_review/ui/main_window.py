@@ -36,12 +36,11 @@ from .. import metadata as md
 from ..config import Config, config_dir
 from . import actions, dialogs
 from .decoder import Decoder
-from .model import SORT_OPTIONS, ReviewModel, needs_metadata
+from .model import SORT_OPTIONS, ReviewModel, looks_like_scanner, needs_metadata
 from .widgets import AMBER, PhotoView, TagChips, archive_icon, arrow_icon, info_icon, keep_icon, undo_icon
 
 log = logging.getLogger(__name__)
 
-SCANNER_TERMS = ("epson", "canoscan", "fujitsu", "plustek", "doxie", "flip-pal", "flippal", "scansnap")
 BATCH = 200
 EMPTY_NO_FOLDER = 'Click "Select Folder" to choose a folder of photos.'
 EMPTY_NO_PHOTOS = "There are no photos in this folder.\n\nSupported: JPG, JPEG, PNG, HEIC, HEIF, TIF, TIFF."
@@ -742,7 +741,7 @@ class MainWindow(QMainWindow):
         make, model = meta.get("IFD0:Make") or "", meta.get("IFD0:Model") or ""
         device = " ".join(x for x in (make, model) if x) or "Unknown"
         self.i_device.setText(device)
-        self.i_scan.setVisible(any(t in device.lower() for t in SCANNER_TERMS))
+        self.i_scan.setVisible(looks_like_scanner(make, model))
         self._show_gps_text(meta)
         self.i_shutter.setText(meta.get("ExifIFD:ExposureTime") or "–")
         fn = meta.get("ExifIFD:FNumber")

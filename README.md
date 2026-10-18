@@ -44,7 +44,8 @@ On macOS the bundled ExifTool runs on the Perl that ships with macOS (`/usr/bin/
   the full value saved in the file; a warning appears if the photo's two date fields disagree.
 - **Caption:** type it and press **Save Caption**. Unsaved text is discarded when you move to
   another photo. Grey text in the box is an older caption found in another field; saving
-  replaces it.
+  replaces it. Text that cameras and scanners fill in automatically (such as "NOVATEK CAMERA")
+  is not shown.
 - **Tags:** type a tag and press Enter or **Add Tag**. Use the `person:`, `event:` and `place:`
   buttons to start a tag, for example `person:emma`, `event:christmas-2025`, `place:lake-house`.
   Tags are lowercase; spaces become hyphens. Click a blue tag to remove it. Grey tags with a
@@ -142,4 +143,5 @@ python -m pytest                      # integration tests use the real bundled E
 python spike/spike.py --samples DIR   # metadata spike against your own photos
 ```
 
-Optional real photos for extra tests go in `tests/fixtures/real/` (not committed).
+The owner's real test pictures are in `tests/fixtures/owner/`. Extra local photos can go in
+`tests/fixtures/real/` (not committed).

@@ -17,7 +17,9 @@ import make_fixtures  # noqa: E402
 
 from photo_review.metadata import ExifToolSession  # noqa: E402
 
-# Optional real photos (not committed): tests/fixtures/real or $PHOTO_REVIEW_REAL_SAMPLES
+# Real photos: the owner's committed test pictures, plus optional local ones that are not committed
+# (tests/fixtures/real or $PHOTO_REVIEW_REAL_SAMPLES).
+OWNER_DIR = ROOT / "tests" / "fixtures" / "owner"
 REAL_DIR = Path(os.environ.get("PHOTO_REVIEW_REAL_SAMPLES", ROOT / "tests" / "fixtures" / "real"))
 
 
@@ -49,7 +51,9 @@ def fixture(fixture_dir: Path, tmp_path: Path) -> Callable[[str], Path]:
 
 
 def real_samples() -> list[Path]:
-    if not REAL_DIR.is_dir():
-        return []
     exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".heic", ".heif"}
-    return sorted(p for p in REAL_DIR.iterdir() if p.suffix.lower() in exts)
+    found: list[Path] = []
+    for d in (OWNER_DIR, REAL_DIR):
+        if d.is_dir():
+            found += [p for p in d.iterdir() if p.suffix.lower() in exts]
+    return sorted(found, key=lambda p: p.name)

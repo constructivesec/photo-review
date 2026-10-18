@@ -1,6 +1,6 @@
 # Open Questions
 
-Status: all 22 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
+Status: all 26 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
 the original questions follow for reference. New ambiguities are added at the end.
 
 ## Decisions
@@ -28,6 +28,10 @@ the original questions follow for reference. New ambiguities are added at the en
 | 20 | Changed-on-disk check fails: reload, tell the user, cancel the action. |
 | 21 | Legacy Latin-1 IPTC is re-written as UTF-8 in the same call (`-charset iptc=Latin -tagsFromFile @ -IPTC:all`, excluding the edited IPTC tags). Verified. |
 | 22 | macOS uses the system Perl with the bundled Image-ExifTool; startup check with a clear error. |
+| 23 | "MAKER NAME" and "NOVATEK" added to the scanner terms for the "Scan?" hint. |
+| 24 | Known camera placeholder text (for example "NOVATEK CAMERA") is never shown as a caption placeholder; files are unchanged. |
+| 25 | Scan dates stay as written: the user corrects them by hand. Revisit after use. |
+| 26 | The owner's test pictures are committed in `tests/fixtures/owner/` and tested in CI. |
 
 ## Original questions
 

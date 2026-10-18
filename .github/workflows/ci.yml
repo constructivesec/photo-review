@@ -38,7 +38,7 @@ jobs:
       - name: Tests
         run: python -m pytest -q
       - name: Metadata spike
-        run: python spike/spike.py
+        run: python spike/spike.py --samples tests/fixtures/owner
       - name: Build
         if: runner.os != 'Linux'
         run: pyinstaller --noconfirm --clean photo_review.spec

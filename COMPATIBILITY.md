@@ -58,7 +58,8 @@ modification time preserved.
 11. **ExifTool JSON emits number-like text unquoted** (a caption "1.50" would read back as 1.5).
     The app parses numbers as their exact text.
 12. **Owner's slide scanner** writes Make "MAKER NAME", Model "96660", ImageDescription
-    "NOVATEK CAMERA", and the **scan** date as DateTimeOriginal (2017). See OPEN_QUESTIONS.md Q23-Q25.
+    "NOVATEK CAMERA", and the **scan** date as DateTimeOriginal (2017). Resolved (Q23-Q25): the
+    "Scan?" hint recognises it, the placeholder text is not shown, scan dates are corrected by hand.
 13. **Facebook's "c2" colour profile** is sRGB under another name (primaries and white point match
     sRGB within 0.0002). Export now recognises sRGB by primaries, so these JPEGs are copied unchanged.
 14. **PySide6 6.12.0 crashes on Python 3.11.** Ordinary calls such as `setEnabled()` release `None`
