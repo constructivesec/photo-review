@@ -50,15 +50,51 @@ def orient(im: Image.Image) -> Image.Image:
     return ImageOps.exif_transpose(im) or im
 
 
+def _xyz(colorant: object) -> tuple[float, float, float] | None:
+    try:
+        return tuple(float(v) for v in colorant[0])  # type: ignore[index, return-value]
+    except (TypeError, IndexError, ValueError):
+        return None
+
+
+_SRGB_PRIMARIES = tuple(
+    _xyz(getattr(_SRGB.profile, a))
+    for a in ("red_colorant", "green_colorant", "blue_colorant", "media_white_point")
+)
+
+
+def is_srgb_profile(profile: ImageCms.ImageCmsProfile) -> bool:
+    """sRGB by name, or an RGB profile whose primaries and white point match sRGB (for example
+    Facebook's compact "c2" profile)."""
+    try:
+        if "srgb" in ImageCms.getProfileDescription(profile).lower():
+            return True
+        p = profile.profile
+        if p.xcolor_space.strip() != "RGB":
+            return False
+        ours = [
+            _xyz(getattr(p, a))
+            for a in ("red_colorant", "green_colorant", "blue_colorant", "media_white_point")
+        ]
+    except Exception:  # noqa: BLE001 - unreadable profile
+        return False
+    if any(v is None for v in ours) or any(v is None for v in _SRGB_PRIMARIES):
+        return False
+    return all(
+        abs(a - b) <= 0.002
+        for mine, ref in zip(ours, _SRGB_PRIMARIES, strict=True)
+        for a, b in zip(mine, ref, strict=True)  # type: ignore[arg-type]
+    )
+
+
 def is_srgb_or_untagged(im: Image.Image) -> bool:
     icc = im.info.get("icc_profile")
     if not icc:
         return True
     try:
-        desc = ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(icc)))
+        return is_srgb_profile(ImageCms.ImageCmsProfile(io.BytesIO(icc)))
     except Exception:  # noqa: BLE001 - unreadable profile
         return False
-    return "srgb" in desc.lower()
 
 
 def normalize_mode(im: Image.Image, keep_alpha: bool) -> Image.Image:

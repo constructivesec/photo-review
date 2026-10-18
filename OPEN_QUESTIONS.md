@@ -104,3 +104,21 @@ or "use recommendations" for any you agree with. Work that depends on an open qu
 22. **macOS ExifTool runtime.** Use the system Perl (`/usr/bin/perl`, present on current macOS
     though Apple has marked scripting runtimes deprecated) with the bundled Image-ExifTool, rather
     than bundling Perl. *Recommended: system Perl, with a startup check and a clear error if missing.*
+
+## New questions (2026-10-18, from the owner's test pictures)
+
+23. **"Scan?" hint for the owner's slide scanner.** Its files say Make "MAKER NAME", Model "96660"
+    (a Novatek-based slide scanner), which matches none of the scanner terms in spec section 4, so no
+    hint is shown. Add "MAKER NAME" and "NOVATEK" to the scanner terms? *Recommended: yes.*
+24. **Camera placeholder captions.** These scans have ImageDescription "NOVATEK CAMERA", which is shown
+    as grey placeholder caption text (Q8: as written). Treat known camera placeholders ("NOVATEK CAMERA",
+    "OLYMPUS DIGITAL CAMERA", "SONY DSC", ...) as blank? *Recommended: yes, display only; files untouched.*
+25. **Scan dates look like real dates.** The slide scanner stores the 2017 scan date as
+    DateTimeOriginal, so these photos are "dated" (they sort under 2017 and do not appear in
+    "Show undated only"). As written, the user fixes each date by hand. Alternative: when the device
+    matches a scanner term, treat the date as undated for sorting and the filter (files untouched).
+    *Recommended: keep as written for now; decide after you try it.*
+26. **Committing your test pictures.** The repository is public. May the six files from the zip be
+    committed under `tests/fixtures/real/` so CI tests them on Windows and macOS? They contain no GPS,
+    but they are personal photos (and the Facebook file name contains a Facebook photo ID).
+    *Recommended: only if you are comfortable with them being public; otherwise keep them local.*

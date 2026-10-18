@@ -218,3 +218,22 @@ def test_real_display_p3_heic_converted_to_srgb(et: ExifToolSession, tmp_path: P
             ImageCms.ImageCmsProfile(__import__("io").BytesIO(im.info["icc_profile"]))
         )
         assert "sRGB" in desc and im.size == (3024, 4032) and im.getexif().get(0x0112) == 1
+
+
+def test_srgb_detection_by_primaries() -> None:
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB"))
+    assert ex.is_srgb_profile(srgb)
+    lab = ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB"))
+    assert not ex.is_srgb_profile(lab)
+
+
+@pytest.mark.skipif(not any("_n.jpg" in p.name for p in real_samples()), reason="no Facebook sample")
+def test_facebook_c2_profile_counts_as_srgb() -> None:
+    src = next(p for p in real_samples() if p.name.endswith("_n.jpg"))
+    assert ex.is_srgb_or_untagged(Image.open(src))
+
+
+@pytest.mark.skipif(not any(p.suffix.lower() == ".heic" for p in real_samples()), reason="no real HEIC")
+def test_display_p3_is_not_srgb() -> None:
+    src = next(p for p in real_samples() if p.suffix.lower() == ".heic")
+    assert not ex.is_srgb_or_untagged(Image.open(src))

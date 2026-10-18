@@ -15,23 +15,17 @@ modification time preserved.
 
 **First run: 119/135.** Two real failures (findings 3 and 9), both resolved by decisions Q1 and Q21.
 
-**Current run, with both fixes: 195/195.**
+**Current run, with both fixes: 210/210** (2026-10-18, owner's original files from the test zip).
 
 | Sample | Passed |
 |---|---|
-| exif_no_xmp.jpg (generated, camera EXIF) | 15/15 |
-| lightroom.jpg (generated, Lightroom-style XMP) | 15/15 |
-| no_metadata.png (generated) | 15/15 |
-| scan.tif (generated, single page) | 15/15 |
-| multipage.tif (generated, 3 pages) | 15/15 |
-| legacy_iptc_latin1.jpg (generated, Latin-1 IPTC, no charset) | 15/15 |
-| iphone.heic (generated with pillow-heif) | 15/15 |
+| exif_no_xmp.jpg, lightroom.jpg, no_metadata.png, scan.tif, multipage.tif, legacy_iptc_latin1.jpg, iphone.heic (generated) | 15/15 each |
 | Real Canon EOS 40D JPEG (public sample) | 15/15 |
 | Real iPhone 11 Pro Max HEIC (public sample) | 15/15 |
-| Owner's iPhone 11 HEIC (4032x3024, Display P3, rotated) | 15/15 |
-| Owner's print scan JPEG | 15/15 |
-| Owner's slide scan JPEG | 15/15 |
-| Owner's program scan PNG (received as WebP, converted losslessly) | 15/15 |
+| Owner: iPhone 11 HEIC (4032x3024, Display P3, rotated 90°) | 15/15 |
+| Owner: slide scans PICT0268/PICT0389 (5760x3840 JPEG, slide scanner) | 15/15 each |
+| Owner: Facebook download JPEG (undeclared IPTC, "c2" colour profile) | 15/15 |
+| Owner: flatbed scan PNG (1632x2520, no metadata) | 15/15 |
 
 ### Findings
 1. **TIFF writes are safe** (single and multi-page): pixels of all pages unchanged, all values
@@ -63,6 +57,11 @@ modification time preserved.
     (nanosecond) modification time after each write.
 11. **ExifTool JSON emits number-like text unquoted** (a caption "1.50" would read back as 1.5).
     The app parses numbers as their exact text.
+12. **Owner's slide scanner** writes Make "MAKER NAME", Model "96660", ImageDescription
+    "NOVATEK CAMERA", and the **scan** date as DateTimeOriginal (2017). See OPEN_QUESTIONS.md Q23-Q25.
+13. **Facebook's "c2" colour profile** is sRGB under another name (primaries and white point match
+    sRGB within 0.0002). Export now recognises sRGB by primaries, so these JPEGs are copied unchanged.
+
 
 ## 2. Manual checks (spec 17, step 2): PENDING, needs Windows and macOS
 
