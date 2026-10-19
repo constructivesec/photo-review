@@ -205,7 +205,9 @@ class ReviewModel:
         return i, was_last
 
     def applied_keep(self, old: Path, new: Path, snap: md.Snapshot | None, meta: md.PhotoMeta) -> bool:
-        """KEEP done. Returns True when the review is finished (last photo handled)."""
+        """KEEP done. In the normal view the photo stays displayed (decision 28: no auto-advance).
+        Kept from the archived view, the file left `_archive`, so it leaves the list.
+        Returns True when the archived view is now finished."""
         if old != new:  # kept from the archived view: moved to the parent folder
             i, was_last = self._remove_current(old)
             if snap is not None:
@@ -215,10 +217,7 @@ class ReviewModel:
         self.store_metas({old: meta})
         if snap is not None:
             self.undo.append(UndoEntry("keep", old, snap, old, i, False, "KEEP"))
-        if self.can_next():
-            self.index = i + 1
-            return False
-        return True
+        return False
 
     def applied_archive(self, old: Path, new: Path, snap: md.Snapshot) -> bool:
         i, was_last = self._remove_current(old)
