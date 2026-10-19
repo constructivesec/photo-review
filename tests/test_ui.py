@@ -89,7 +89,9 @@ def test_keyboard_keep_archive_undo(window: MainWindow, folder: Path) -> None:
     first = window.model.current
     assert first is not None
     key(window, Qt.Key.Key_Y)
-    assert rating(first) == 1 and window.counter.text() == "2 of 4"
+    assert rating(first) == 1 and window.counter.text() == "1 of 4"  # KEEP stays on the photo
+    assert window.model.current == first and window.view._rating == 1  # KEEP badge shown
+    key(window, Qt.Key.Key_Right)
     second = window.model.current
     assert second is not None
     key(window, Qt.Key.Key_N)
@@ -129,14 +131,14 @@ def test_save_caption_returns_focus(window: MainWindow) -> None:
     assert QApplication.focusWidget() is window.view
 
 
-def test_unsaved_caption_discarded_on_navigation(window: MainWindow) -> None:
+def test_unsaved_caption_saved_on_navigation(window: MainWindow) -> None:
     first = window.model.current
-    window.caption_edit.setText("never saved")
+    window.caption_edit.setText("saved by Next")
     window.go_next()
     settle(window)
     window.go_back()
     settle(window)
-    assert window.model.current == first and window.caption_edit.text() != "never saved"
+    assert window.model.current == first and window.caption_edit.text() == "saved by Next"
 
 
 def test_save_date_and_validation(window: MainWindow, folder: Path) -> None:
@@ -289,3 +291,112 @@ def test_empty_folder(app: QApplication, tmp_path: Path) -> None:
     settle(w)
     assert w.counter.text() == "0 of 0" and "no photos" in w.view._message and not w.keep_btn.isEnabled()
     dispose(w)
+
+
+# ---------------------------------------------------------------- unsaved edits (decision 29)
+
+
+def meta_of(window: MainWindow, path: Path) -> md.PhotoMeta:
+    with md.ExifToolSession() as et:
+        return md.read_meta(et, [path])[path]
+
+
+def focus(window: MainWindow, widget: object) -> None:
+    widget.setFocus()  # type: ignore[attr-defined]
+    settle(window)
+
+
+def test_switching_fields_keeps_and_autosaves_text(window: MainWindow, folder: Path) -> None:
+    window.model.go_to(folder / "no_date.jpg")
+    window.show_current()
+    settle(window)
+    path = window.model.current
+    assert path is not None
+    focus(window, window.caption_edit)
+    window.caption_edit.setText("Picnic")
+    focus(window, window.month_edit)  # leaving the caption saves it
+    assert meta_of(window, path).caption == "Picnic" and window.caption_edit.text() == "Picnic"
+    window.month_edit.setText("6")
+    focus(window, window.day_edit)  # moving within the date fields does not save
+    window.day_edit.setText("15")
+    focus(window, window.year_edit)
+    window.year_edit.setText("1962")
+    assert meta_of(window, path).date.undated
+    focus(window, window.tag_edit)  # leaving the date fields saves the date
+    assert meta_of(window, path).get(md.EXIF_DTO) == "1962:06:15 12:00:00"
+    window.tag_edit.setText("person:emma")
+    focus(window, window.caption_edit)  # leaving the tag box adds the tag
+    assert "person:emma" in meta_of(window, path).keywords
+    assert (window.month_edit.text(), window.day_edit.text(), window.year_edit.text()) == ("6", "15", "1962")
+    assert window.caption_edit.text() == "Picnic" and window.tag_edit.text() == ""
+
+
+def test_saving_one_field_does_not_blank_others(window: MainWindow, folder: Path) -> None:
+    window.model.go_to(folder / "lightroom.jpg")
+    window.show_current()
+    settle(window)
+    window.caption_edit.setText("typed but not saved")
+    window.month_edit.setText("7")
+    window.tag_edit.setText("place:lake")
+    window.do_add_tag()  # Add Tag button: saves the tag only
+    settle(window)
+    assert window.caption_edit.text() == "typed but not saved" and window.month_edit.text() == "7"
+    window.do_save_caption()
+    settle(window)
+    assert window.month_edit.text() == "7"
+
+
+def test_next_autosaves_all_pending_fields(window: MainWindow, folder: Path) -> None:
+    window.model.go_to(folder / "no_date.jpg")
+    window.show_current()
+    settle(window)
+    path = window.model.current
+    assert path is not None
+    window.caption_edit.setText("Saved by Next")
+    window.tag_edit.setText("event:picnic")
+    window.month_edit.setText("8")
+    window.year_edit.setText("1970")
+    window.go_next()
+    settle(window)
+    m = meta_of(window, path)
+    assert m.caption == "Saved by Next" and "event:picnic" in m.keywords
+    assert m.get(md.EXIF_DTO) == "1970:08:01 12:00:00"
+    assert window.model.current == path and not window.model.can_next()  # last photo: saved, stays
+
+
+def test_back_stays_on_photo_when_a_save_fails(window: MainWindow, folder: Path) -> None:
+    window.model.go_to(folder / "no_date.jpg")
+    window.show_current()
+    settle(window)
+    path = window.model.current
+    assert path is not None and window.model.can_back()
+    window.caption_edit.setText("kept")
+    window.month_edit.setText("13")  # invalid
+    window.year_edit.setText("1962")
+    window.go_back()
+    settle(window)
+    assert window.model.current == path  # stayed
+    assert "1 to 12" in window.status.text()
+    assert window.month_edit.text() == "13"  # typed value still there to fix
+    assert meta_of(window, path).caption == "kept"  # the valid field was saved
+
+
+def test_archive_autosaves_first(window: MainWindow, folder: Path) -> None:
+    window.model.go_to(folder / "no_date.jpg")
+    window.show_current()
+    settle(window)
+    window.caption_edit.setText("Archived with caption")
+    window.do_archive()
+    settle(window)
+    moved = folder / "_archive" / "no_date.jpg"
+    assert moved.exists() and meta_of(window, moved).caption == "Archived with caption"
+
+
+def test_keep_keeps_typed_text(window: MainWindow) -> None:
+    window.caption_edit.setText("still typing")
+    window.view.setFocus()
+    settle(window)  # leaving the field autosaves
+    window.caption_edit.setText("still typing more")
+    window.do_keep()
+    settle(window)
+    assert window.caption_edit.text() == "still typing more" and window.view._rating == 1

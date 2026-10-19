@@ -31,7 +31,7 @@ On macOS the bundled ExifTool runs on the Perl that ships with macOS (`/usr/bin/
 
 | Button | Key | What it does |
 |---|---|---|
-| KEEP (green, ✓) | `Y` | Marks the photo as kept (1 star) and shows the next one. Photos you rated 2 to 5 stars elsewhere keep their stars. |
+| KEEP (green, ✓) | `Y` | Marks the photo as kept (1 star); the green KEEP badge appears in the top-left corner and the photo stays on screen. Photos you rated 2 to 5 stars elsewhere keep their stars. In "Show archived", KEEP moves the photo back to the main folder. |
 | ARCHIVE (red, box) | `N` | Marks the photo as archived and moves it into the `_archive` folder (same name; a number is added if that name is taken). |
 | Back / Next | `←` / `→` | Previous / next photo. |
 | Undo | `Ctrl+Z` (Windows), `Cmd+Z` (Mac) | Reverses the last change. You can undo many steps, back to when you opened the folder or switched views. |
@@ -44,10 +44,9 @@ On macOS the bundled ExifTool runs on the Perl that ships with macOS (`/usr/bin/
   photos without a date). The time of day already stored is kept (12:00:00 for a photo without a
   date). "Stored date" shows the full value saved in the file; a warning appears if the photo's
   two date fields disagree.
-- **Caption:** type it and press **Save Caption**. Unsaved text is discarded when you move to
-  another photo. Grey text in the box is an older caption found in another field; saving
-  replaces it. Text that cameras and scanners fill in automatically (such as "NOVATEK CAMERA")
-  is not shown.
+- **Caption:** type it and press **Save Caption**. Grey text in the box is an older caption found
+  in another field; saving replaces it. Text that cameras and scanners fill in automatically (such
+  as "NOVATEK CAMERA") is not shown.
 - **Tags:** type a tag and press Enter or **Add Tag**. Use the `person:`, `event:` and `place:`
   buttons to start a tag, for example `person:emma`, `event:christmas-2025`, `place:lake-house`.
   Tags are lowercase; spaces become hyphens. Click a blue tag to remove it. Grey tags with a
@@ -59,7 +58,12 @@ On macOS the bundled ExifTool runs on the Perl that ships with macOS (`/usr/bin/
 - **Sort:** Filename, Date taken (oldest first; undated photos last), File modified, or Rating.
   The order is set when you load, sort, toggle a view or filter, or press Refresh; editing a
   photo never reorders the list while you work.
-- While a text box is active, the single-key shortcuts type into the box. Press `Esc` to leave it.
+- **Nothing you type is lost.** Moving to another field saves the field you left (moving between
+  Month, Day and Year saves the date only when you leave the date). **Next**, **Back** and
+  **ARCHIVE** first save anything typed but not yet saved (caption, tag, date). If something cannot
+  be saved (for example month 13), the app stays on the photo and shows the error so you can fix it.
+- While a text box is active, the single-key shortcuts type into the box. Press `Esc` to leave it
+  (this also saves it).
 - **File > Settings…:** "Mirror captions to legacy fields" (on) and "Also set CreateDate" (off;
   on scans, CreateDate records the scan date).
 
@@ -112,7 +116,9 @@ Use `python tools/make_fixtures.py <empty folder>` to create a test folder, plus
 - [ ] First launch shows the backup notice; "Don't show this again" sticks after a restart.
 - [ ] Starting a second copy shows "already running".
 - [ ] Selecting an `_archive` folder is refused with a message.
-- [ ] KEEP: badge turns green, counter total unchanged, next photo shown. A 3-star Lightroom photo stays 3 stars.
+- [ ] KEEP: green KEEP badge appears top-left, the same photo stays shown, counter unchanged. A 3-star Lightroom photo stays 3 stars.
+- [ ] Type a caption, click into Month: the caption is saved and still shown. Type a date, a caption and a tag, press Next: all three are saved.
+- [ ] Type month 13 and press Next or Back: the app stays on the photo and shows the error.
 - [ ] ARCHIVE: photo moves to `_archive`, total drops by one; Undo brings it back to the same position.
 - [ ] Show archived: KEEP moves the photo back to the main folder; Undo returns it.
 - [ ] Caption with accents, emoji and a line break saves and reloads exactly.

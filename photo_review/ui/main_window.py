@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self._ready = False  # ExifTool started
         self._folder_tags: set[str] = set()
         self._job_busy: set[int] = set()
+        self._filled_path: Path | None = None  # photo whose values are in the edit fields
 
         from .worker import BACKGROUND, USER, Worker
 
@@ -89,6 +91,7 @@ class MainWindow(QMainWindow):
         if config.window_geometry:
             self.restoreGeometry(QByteArray.fromBase64(config.window_geometry.encode()))
         QApplication.instance().installEventFilter(self)  # type: ignore[union-attr]
+        QApplication.instance().focusChanged.connect(self._on_focus_changed)  # type: ignore[union-attr]
         self.view.show_message("Starting…")
         self.refresh_controls()
         self.worker.start()
@@ -397,18 +400,19 @@ class MainWindow(QMainWindow):
         self.keep_btn.setEnabled(writable)
         self.archive_btn.setEnabled(writable and not m.archived_view)
         self.undo_btn.setEnabled(bool(m.undo) and not self.busy)
+        # Text fields stay editable while a save runs: disabling the field the user just moved
+        # into would throw keyboard focus out of it. Only buttons wait for the save.
+        editable = m.current is not None and meta is not None
         for w in (
             self.month_edit,
             self.day_edit,
             self.year_edit,
             self.approx_box,
-            self.save_date_btn,
             self.caption_edit,
-            self.save_caption_btn,
             self.tag_edit,
-            self.add_tag_btn,
-            *self.quick_btns,
         ):
+            w.setEnabled(editable)
+        for w in (self.save_date_btn, self.save_caption_btn, self.add_tag_btn, *self.quick_btns):
             w.setEnabled(writable)
         self.chips.setEnabled(writable)
         for w in (self.select_btn, self.sort_combo, self.show_archived, self.undated_only, self.refresh_btn):
@@ -625,7 +629,8 @@ class MainWindow(QMainWindow):
     def show_current(self) -> None:
         m = self.model
         path = m.current
-        self._clear_fields()
+        if path is None or path != self._filled_path:
+            self._clear_fields()  # a different photo: start from empty fields
         if path is None:
             self.setWindowTitle("Photo Review")
             if m.folder is None:
@@ -702,6 +707,7 @@ class MainWindow(QMainWindow):
             self.info_dims.setText(f"{w} × {h} ({w * h / 1_000_000:.1f} MP)")
 
     def _clear_fields(self) -> None:
+        self._filled_path = None
         for e in (self.month_edit, self.day_edit, self.year_edit, self.caption_edit, self.tag_edit):
             e.clear()
         self.caption_edit.setPlaceholderText("")
@@ -725,7 +731,12 @@ class MainWindow(QMainWindow):
         self.i_scan.hide()
 
     def _fill_fields(self, meta: md.PhotoMeta) -> None:
+        """Show `meta`. For the photo already shown, fields with unsaved edits are left as typed."""
         path = meta.path
+        same = path == self._filled_path
+        keep_date = same and self._date_dirty(meta)
+        keep_caption = same and self._caption_dirty(meta)
+        self._filled_path = path
         self.info_name.setText(path.name)
         r = meta.rating
         self.info_rating.setText(
@@ -734,18 +745,23 @@ class MainWindow(QMainWindow):
         if meta.stamp:
             self.info_size.setText(human_size(meta.stamp.size))
         eff = meta.date
+        if not keep_date:
+            for edit, value in zip(
+                (self.month_edit, self.day_edit, self.year_edit),
+                (eff.value.month, eff.value.day, eff.value.year) if eff.value else ("", "", ""),
+                strict=True,
+            ):
+                edit.setText(str(value))
+            self.approx_box.setChecked(meta.approximate or eff.undated)
         if eff.value is not None:
-            self.month_edit.setText(str(eff.value.month))
-            self.day_edit.setText(str(eff.value.day))
-            self.year_edit.setText(str(eff.value.year))
             self.stored_date.setText(f"Stored date: {date_logic.format_display(eff.value)}")
         else:
             self.stored_date.setText("Stored date: none")
         self.date_mismatch.setVisible(eff.mismatch)
         self.info_nodate.setVisible(eff.undated)
-        self.approx_box.setChecked(meta.approximate or eff.undated)
-        self.caption_edit.setText(meta.caption)
-        self.caption_edit.setCursorPosition(0)
+        if not keep_caption:
+            self.caption_edit.setText(meta.caption)
+            self.caption_edit.setCursorPosition(0)
         self.caption_edit.setPlaceholderText(meta.caption_placeholder or "Type a caption")
         self.chips.set_keywords(meta.keywords, not self.busy)
         make, model = meta.get("IFD0:Make") or "", meta.get("IFD0:Model") or ""
@@ -783,16 +799,111 @@ class MainWindow(QMainWindow):
     # ================================================================ navigation
 
     def go_next(self) -> None:
-        if not self.busy and self.model.can_next():
-            self.model.next()
+        self._navigate(+1)
+
+    def go_back(self) -> None:
+        self._navigate(-1)
+
+    def _navigate(self, step: int) -> None:
+        """Save unsaved edits first; on an error, stay on this photo (decision 29)."""
+        m = self.model
+        if self.busy or m.current is None:
+            return
+        path = m.current
+
+        def move() -> None:
+            if m.current != path:  # a saved date moved the photo out of the filtered list
+                return
+            if not (m.can_next() if step > 0 else m.can_back()):
+                return  # first/last photo: edits are saved, nowhere to go
+            m.next() if step > 0 else m.back()
             self.show_banner(None)
             self.show_current()
 
-    def go_back(self) -> None:
-        if not self.busy and self.model.can_back():
-            self.model.back()
-            self.show_banner(None)
-            self.show_current()
+        self._flush(move)
+
+    # ================================================================ unsaved edits (decision 29)
+
+    def _group_of(self, widget: QObject | None) -> str | None:
+        if widget in (self.month_edit, self.day_edit, self.year_edit):
+            return "date"
+        if widget is self.caption_edit:
+            return "caption"
+        if widget is self.tag_edit:
+            return "tags"
+        return None
+
+    def _date_dirty(self, meta: md.PhotoMeta) -> bool:
+        """Month/Day/Year (or Approximate) differ from the stored date. A blank Day means
+        "keep the stored day", so it is not a change on its own."""
+        texts = [e.text().strip() for e in (self.month_edit, self.day_edit, self.year_edit)]
+        eff = meta.date.value
+        if eff is None:
+            return any(texts)
+        for i, (text, stored) in enumerate(zip(texts, (eff.month, eff.day, eff.year), strict=True)):
+            if i == 1 and not text:
+                continue
+            if not text.isdigit() or int(text) != stored:
+                return True
+        return self.approx_box.isChecked() != meta.approximate
+
+    def _caption_dirty(self, meta: md.PhotoMeta) -> bool:
+        return self.caption_edit.text() != meta.caption
+
+    def _tag_dirty(self) -> bool:
+        text = self.tag_edit.text().strip()
+        return bool(text) and not re.fullmatch(r"[^:\s]*:", text)  # a bare "person:" is not a tag yet
+
+    def _dirty(self, group: str, meta: md.PhotoMeta) -> bool:
+        if group == "date":
+            return self._date_dirty(meta)
+        if group == "caption":
+            return self._caption_dirty(meta)
+        return self._tag_dirty()
+
+    def _on_focus_changed(self, old: QWidget | None, new: QWidget | None) -> None:
+        """Autosave a field group when focus moves to a different field or the photo."""
+        if old is None or new is None or new.window() is not self:
+            return  # switching apps or opening a dialog is not leaving the field
+        group = self._group_of(old)
+        if group is None or group == self._group_of(new):
+            return
+        meta = self._current_meta()
+        if meta is not None and self._dirty(group, meta):
+            self._start_save(group, meta, then=None, refocus=False)
+
+    def _flush(
+        self, then: Callable[[], None] | None, force: tuple[str, ...] = (), refocus: bool = False
+    ) -> None:
+        """Save every field group with unsaved edits (caption, tags, then date, one ExifTool call
+        each), then run `then`. Stops at the first error, which stays on screen."""
+        meta = self._current_meta()
+        if meta is None:
+            return
+        pending = [g for g in ("caption", "tags", "date") if g in force or self._dirty(g, meta)]
+
+        def step(i: int) -> None:
+            if i == len(pending):
+                if then is not None:
+                    then()
+                return
+            current = self._current_meta()
+            if current is None:
+                return
+            last = i == len(pending) - 1
+            self._start_save(pending[i], current, lambda: step(i + 1), refocus and last)
+
+        step(0)
+
+    def _start_save(
+        self, group: str, meta: md.PhotoMeta, then: Callable[[], None] | None, refocus: bool
+    ) -> None:
+        if group == "caption":
+            self._save_caption(meta, then, refocus)
+        elif group == "tags":
+            self._add_tag(meta, then, refocus)
+        else:
+            self._save_date(meta, then, refocus)
 
     # ================================================================ actions
 
@@ -810,6 +921,14 @@ class MainWindow(QMainWindow):
             )
 
     def do_keep(self) -> None:
+        if self._current_meta() is None:
+            return
+        if self.model.archived_view:  # the photo leaves this view: save typed edits first
+            self._flush(self._keep)
+        else:
+            self._keep()
+
+    def _keep(self) -> None:
         meta = self._current_meta()
         if meta is None:
             return
@@ -827,13 +946,18 @@ class MainWindow(QMainWindow):
                 if res.snapshot is not None
                 else f"{res.old_path.name} was already kept"
             )
-            self.show_banner(FINISHED if finished and m.current is not None else None)
-            self.show_current()
+            self.show_banner(FINISHED if moved and finished and m.current is not None else None)
+            self.show_current()  # same photo in the normal view: the KEEP badge appears
 
         archived, folder = m.archived_view, m.folder
         self.run_job(lambda et, rp: actions.keep(et, meta, archived, folder), done)
 
     def do_archive(self) -> None:
+        if self._current_meta() is None or self.model.archived_view:
+            return
+        self._flush(self._archive)  # the photo leaves the list: save typed edits first
+
+    def _archive(self) -> None:
         meta = self._current_meta()
         if meta is None or self.model.archived_view:
             return
@@ -852,37 +976,48 @@ class MainWindow(QMainWindow):
         self.run_job(lambda et, rp: actions.archive(et, meta, folder), done)
 
     def _edit_done(
-        self, kind: str, meta: md.PhotoMeta, message: str
+        self,
+        kind: str,
+        meta: md.PhotoMeta,
+        message: str,
+        then: Callable[[], None] | None = None,
+        refocus: bool = True,
     ) -> Callable[[Any, BaseException | None], None]:
         def done(res: actions.ActionResult | None, exc: BaseException | None) -> None:
             if exc is not None or res is None:
                 self._failed(meta, exc or RuntimeError(f"{kind} failed"))
-                return
+                return  # stop: the error stays on screen and nothing further runs
             left = self.model.applied_edit(kind, res.path, res.snapshot or {}, res.meta)
             self.show_status(" ".join([message, *res.notes]))
             if left:
                 self.show_current()
             elif res.path == self.model.current:
                 self._fill_fields(res.meta)
-            self.view.setFocus()
+            if refocus:
+                self.view.setFocus()
+            if then is not None:
+                then()
 
         return done
 
     def do_save_caption(self) -> None:
         meta = self._current_meta()
-        if meta is None:
-            return
+        if meta is not None:
+            self._save_caption(meta, None, refocus=True)
+
+    def _save_caption(self, meta: md.PhotoMeta, then: Callable[[], None] | None, refocus: bool) -> None:
         text, mirror = self.caption_edit.text(), self.config.mirror_legacy
         message = "Caption saved." if text else "Caption cleared."
         self.run_job(
             lambda et, rp: actions.save_caption(et, meta, text, mirror),
-            self._edit_done("caption", meta, message),
+            self._edit_done("caption", meta, message, then, refocus),
         )
 
     def do_save_date(self) -> None:
-        meta = self._current_meta()
-        if meta is None:
-            return
+        # Other typed edits first: a saved date can move the photo out of "Show undated only".
+        self._flush(None, force=("date",), refocus=True)
+
+    def _save_date(self, meta: md.PhotoMeta, then: Callable[[], None] | None, refocus: bool) -> None:
         month, day, year = self.month_edit.text(), self.day_edit.text(), self.year_edit.text()
         approx = self.approx_box.isChecked()
         try:
@@ -893,7 +1028,7 @@ class MainWindow(QMainWindow):
         create = self.config.set_create_date
         self.run_job(
             lambda et, rp: actions.save_date(et, meta, month, day, year, approx, create),
-            self._edit_done("date", meta, "Date saved."),
+            self._edit_done("date", meta, "Date saved.", then, refocus),
         )
 
     def _quick_prefix(self, prefix: str) -> None:
@@ -903,8 +1038,10 @@ class MainWindow(QMainWindow):
 
     def do_add_tag(self) -> None:
         meta = self._current_meta()
-        if meta is None:
-            return
+        if meta is not None:
+            self._add_tag(meta, None, refocus=True)
+
+    def _add_tag(self, meta: md.PhotoMeta, then: Callable[[], None] | None, refocus: bool) -> None:
         text = self.tag_edit.text()
         try:
             tag = tag_logic.normalize(text)
@@ -914,7 +1051,10 @@ class MainWindow(QMainWindow):
         if any(k.casefold() == tag.casefold() for k in meta.keywords):
             self.show_status(f'"{tag}" is already on this photo.')
             self.tag_edit.clear()
-            self.view.setFocus()
+            if refocus:
+                self.view.setFocus()
+            if then is not None:
+                then()
             return
         self.config.tag_history = tag_logic.update_history(self.config.tag_history, [tag])
         self.config.save(self.config_path)
@@ -922,7 +1062,7 @@ class MainWindow(QMainWindow):
         self.tag_edit.clear()
         self.run_job(
             lambda et, rp: actions.add_tag(et, meta, tag),
-            self._edit_done("tags", meta, f'Tag "{tag}" added.'),
+            self._edit_done("tags", meta, f'Tag "{tag}" added.', then, refocus),
         )
 
     def do_remove_tag(self, tag: str) -> None:
@@ -1049,6 +1189,7 @@ class MainWindow(QMainWindow):
         self.config.window_geometry = bytes(self.saveGeometry().toBase64().data()).decode()
         self.config.save(self.config_path)
         QApplication.instance().removeEventFilter(self)  # type: ignore[union-attr]
+        QApplication.instance().focusChanged.disconnect(self._on_focus_changed)  # type: ignore[union-attr]
         self.worker.stop()
         self.decoder.pool.waitForDone(3000)
         super().closeEvent(event)

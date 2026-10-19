@@ -119,29 +119,31 @@ def test_edits_never_reorder(et: md.ExifToolSession, folder: Path) -> None:
 # ---------------------------------------------------------------- KEEP / ARCHIVE
 
 
-def test_keep_advances_and_total_unchanged(et: md.ExifToolSession, folder: Path) -> None:
+def test_keep_stays_on_photo_and_total_unchanged(et: md.ExifToolSession, folder: Path) -> None:
     m = load(et, folder)
     first = m.current
     r = actions.keep(et, cur(et, m), False, folder)
     assert not m.applied_keep(r.old_path, r.path, r.snapshot, r.meta)
-    assert m.total == 6 and m.position == 2 and r.meta.rating == 1 and first is not None
+    assert m.total == 6 and m.position == 1 and m.current == first and r.meta.rating == 1
+    assert m.meta(first) is not None and m.meta(first).rating == 1  # type: ignore[union-attr]
 
 
-def test_keep_already_kept_is_noop_that_advances(et: md.ExifToolSession, folder: Path) -> None:
+def test_keep_already_kept_is_noop(et: md.ExifToolSession, folder: Path) -> None:
     m = load(et, folder)
     m.go_to(folder / "lightroom.jpg")
     before = (folder / "lightroom.jpg").read_bytes()
     r = actions.keep(et, cur(et, m), False, folder)
     assert r.snapshot is None and (folder / "lightroom.jpg").read_bytes() == before
     m.applied_keep(r.old_path, r.path, r.snapshot, r.meta)
-    assert m.undo == [] and m.current != folder / "lightroom.jpg"
+    assert m.undo == [] and m.current == folder / "lightroom.jpg"
 
 
-def test_keep_on_last_photo_is_finished(et: md.ExifToolSession, folder: Path) -> None:
+def test_keep_on_last_photo_stays(et: md.ExifToolSession, folder: Path) -> None:
     m = load(et, folder)
     m.index = m.total - 1
     r = actions.keep(et, cur(et, m), False, folder)
-    assert m.applied_keep(r.old_path, r.path, r.snapshot, r.meta)
+    assert not m.applied_keep(r.old_path, r.path, r.snapshot, r.meta)
+    assert m.position == m.total
 
 
 def test_archive_removes_and_undo_restores_position(et: md.ExifToolSession, folder: Path) -> None:

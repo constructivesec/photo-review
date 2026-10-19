@@ -1,6 +1,6 @@
 # Open Questions
 
-Status: all 27 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
+Status: all 29 resolved by the owner on 2026-10-18. Answers are recorded under "Decisions";
 the original questions follow for reference. New ambiguities are added at the end.
 
 ## Decisions
@@ -33,6 +33,8 @@ the original questions follow for reference. New ambiguities are added at the en
 | 25 | Scan dates stay as written: the user corrects them by hand. Revisit after use. |
 | 26 | The owner's test pictures are committed in `tests/fixtures/owner/` and tested in CI. |
 | 27 | Owner request (2026-10-18, changes spec 9): a Day field between Month and Year (Month / Day / Year). It shows the stored day. Interpretation: Day is optional; blank keeps the previous rule (stored day clamped to the month, or day 1 if undated); a given day must exist in that month and not be in the future; the stored time of day is kept (12:00:00 if undated). |
+| 28 | Owner request (2026-10-19, changes spec 5.3): KEEP no longer advances. It marks the photo and the KEEP badge appears; the photo stays shown. Exception: KEEP in "Show archived" moves the file out of `_archive`, so the photo leaves that list as before. |
+| 29 | Owner request (2026-10-19, changes spec 7 "unsaved text is discarded on navigation"): typed text is never discarded. Leaving a field group (date = Month/Day/Year/Approximate, caption, tag box) saves it; moving within the date fields does not. Saving one field never blanks another. Next, Back and ARCHIVE (and KEEP in "Show archived") first save every pending group (caption, tags, date; one ExifTool call each); on any error the app stays on the photo and shows the error. Next/Back on the first or last photo still save. A bare quick-add prefix ("person:") is not a pending tag. |
 
 ## Original questions
 
