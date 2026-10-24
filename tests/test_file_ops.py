@@ -9,10 +9,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from helpers import shift_makernote_offsets
 
 from photo_review import file_ops as fo
 from photo_review import metadata as md
 from photo_review.metadata import ExifToolSession
+from photo_review.ui import actions
 
 Fixture = Callable[..., Path]
 
@@ -252,3 +254,14 @@ def test_paths_with_unicode(et: ExifToolSession, fixture: Fixture) -> None:
     res = fo.write_then_move(et, m, md.plan_archive(m), fo.archive_folder(p.parent))
     assert res.path.name == p.name and read(et, res.path).rating == -1
     shutil.rmtree(res.path.parent)
+
+
+def test_maker_note_repair_is_reported(et: ExifToolSession, tmp_path: Path) -> None:
+    p = tmp_path / "aP1010017.JPG"
+    shift_makernote_offsets(Path(__file__).parent / "fixtures" / "exiftool" / "Olympus.jpg", p, 304)
+    meta = md.read_meta(et, [p])[p]
+    res = actions.save_date(et, meta, "6", "15", "2003", False, False)
+    assert res.meta.date.value is not None and res.meta.date.value.year == 2003
+    assert any("maker notes" in n for n in res.notes)
+    assert res.snapshot is not None  # undo still restores the previous date
+    assert actions.save_date(et, res.meta, "7", "", "2003", False, False).notes == []

@@ -41,17 +41,17 @@ def keep(et: md.ExifToolSession, meta: md.PhotoMeta, archived_view: bool, parent
     plan = md.plan_keep(meta)
     if archived_view:
         res = file_ops.write_then_move(et, meta, plan, parent)
-        return ActionResult(meta.path, res.path, reread(et, res.path), res.snapshot)
+        return ActionResult(meta.path, res.path, reread(et, res.path), res.snapshot, res.notes)
     if plan.empty:  # already kept: no-op that still advances
         file_ops.check_unchanged(meta)
         return ActionResult(meta.path, meta.path, meta, None)
     res = file_ops.write(et, meta, plan)
-    return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot)
+    return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot, res.notes)
 
 
 def archive(et: md.ExifToolSession, meta: md.PhotoMeta, folder: Path) -> ActionResult:
     res = file_ops.write_then_move(et, meta, md.plan_archive(meta), file_ops.archive_folder(folder))
-    return ActionResult(meta.path, res.path, reread(et, res.path), res.snapshot)
+    return ActionResult(meta.path, res.path, reread(et, res.path), res.snapshot, res.notes)
 
 
 def save_caption(et: md.ExifToolSession, meta: md.PhotoMeta, text: str, mirror: bool) -> ActionResult:
@@ -61,7 +61,7 @@ def save_caption(et: md.ExifToolSession, meta: md.PhotoMeta, text: str, mirror: 
 
 def save_keywords(et: md.ExifToolSession, meta: md.PhotoMeta, keywords: list[str]) -> ActionResult:
     res = file_ops.write(et, meta, md.plan_keywords(meta, keywords))
-    return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot)
+    return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot, res.notes)
 
 
 def add_tag(et: md.ExifToolSession, meta: md.PhotoMeta, text: str) -> ActionResult:
@@ -89,7 +89,7 @@ def save_date(
     value = date_logic.new_value(meta.date.value, month, year, day)
     plan = md.plan_date(meta, date_logic.format_exif(value), approximate, set_create_date)
     res = file_ops.write(et, meta, plan)
-    return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot)
+    return ActionResult(meta.path, meta.path, reread(et, meta.path), res.snapshot, res.notes)
 
 
 def undo(et: md.ExifToolSession, entry: UndoEntry) -> ActionResult:
@@ -100,7 +100,7 @@ def undo(et: md.ExifToolSession, entry: UndoEntry) -> ActionResult:
         res = file_ops.write_then_move(et, now, plan, entry.original_path.parent, entry.original_path.name)
     else:
         res = file_ops.write(et, now, plan)
-    return ActionResult(entry.path, res.path, reread(et, res.path), None)
+    return ActionResult(entry.path, res.path, reread(et, res.path), None, res.notes)
 
 
 def read_batch(et: md.ExifToolSession, paths: list[Path]) -> dict[Path, md.PhotoMeta]:

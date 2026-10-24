@@ -68,6 +68,19 @@ modification time preserved.
     made these objects immortal, so the bug is harmless there. Reproduced 3/3 on 3.11 and clean 3/3 on
     3.12 with the UI tests. The app therefore requires Python 3.12+ (the spec's "3.11+" allows it) and
     CI and the builds use 3.12.
+15. **Maker notes with misplaced offsets (owner report, 2026-10-24).** Some photos edited by other
+    programs have camera maker notes whose internal offsets were not updated when the EXIF block moved
+    (owner's Olympus JPEG: "Possibly incorrect maker notes offsets (fix by -304?)", "Bad MakerNotes
+    offset for CameraID"). Measured on ExifTool's own Olympus test image with offsets shifted by +304,
+    -304 and +2000 bytes: any write that rewrites EXIF (caption, date) is either refused with a
+    "[minor]" error (+304, +2000) or, worse, succeeds and copies the wrong bytes (-304), after which the
+    camera values cannot be recovered. `-m` alone also loses them. `-m -F<n>` with ExifTool's suggested
+    `n` restores every Olympus value exactly, pixels unchanged, and later writes need no flags.
+    XMP-only writes (KEEP, ARCHIVE) copy the EXIF block unchanged and are safe either way. The app
+    therefore reads the maker notes before each write and, when ExifTool suggests a fix, applies it in
+    the same single write call; the status bar and the log say so. Tested in `tests/test_metadata.py`
+    with `tests/fixtures/exiftool/Olympus.jpg`. Maker-note problems without a suggested fix are not
+    worked around: the write fails with ExifTool's message, as before.
 
 ## 2. Manual checks (spec 17, step 2): PENDING, needs Windows and macOS
 

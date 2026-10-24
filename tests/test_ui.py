@@ -131,6 +131,15 @@ def test_save_caption_returns_focus(window: MainWindow) -> None:
     assert QApplication.focusWidget() is window.view
 
 
+def test_long_caption_is_not_truncated(window: MainWindow) -> None:
+    cur = window.model.current
+    text = "x" * 40_000  # above QLineEdit's default limit of 32767
+    window.caption_edit.setText(text)
+    window.do_save_caption()
+    settle(window)
+    assert window.model.meta(cur).caption == text  # type: ignore[union-attr]
+
+
 def test_unsaved_caption_saved_on_navigation(window: MainWindow) -> None:
     first = window.model.current
     window.caption_edit.setText("saved by Next")
