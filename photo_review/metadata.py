@@ -165,6 +165,7 @@ class ExifToolSession:
         )
         self._lock = threading.Lock()  # guards against accidental cross-thread use
         self.last_warnings = ""
+        self.last_repair: str | None = None  # set by write() when maker-note offsets were repaired
 
     def __enter__(self) -> ExifToolSession:
         self.start()
@@ -244,17 +245,44 @@ class ExifToolSession:
             out = self._et.last_stdout or ""
         return loads(out)
 
-    def write(self, path: Path | str, args: Sequence[str]) -> str:
-        """Write all assignments to one file in one ExifTool call (-overwrite_original -P)."""
-        before = os.stat(path)
+    def makernote_fix(self, path: Path | str) -> int | None:
+        """The maker-note base fix ExifTool suggests for this file, or None.
+
+        ExifTool only reports misplaced maker-note offsets when it parses the maker notes."""
         try:
-            out = self.execute(*WRITE_FLAGS, *args, str(path))
+            out = self.execute("-a", "-s3", "-Warning", "-MakerNotes:All", str(path))
+        except MetadataError:
+            return None  # unreadable: the write itself reports the problem
+        found = _MAKERNOTE_FIX.search(out + "\n" + self.last_warnings)
+        return int(found.group(1)) if found else None
+
+    def write(self, path: Path | str, args: Sequence[str]) -> str:
+        """Write all assignments to one file in one ExifTool call (-overwrite_original -P).
+
+        Camera maker notes whose offsets were broken by another program are repaired in the
+        same call when ExifTool names the exact fix (-m -F<offset>); a plain write would either
+        be refused or, worse, succeed and make the camera values unrecoverable. `last_repair`
+        then describes the repair."""
+        before = os.stat(path)
+        self.last_repair = None
+        secrets = _values(args)
+        fix = self.makernote_fix(path)
+        repair = ["-m", f"-F{fix}"] if fix is not None else []
+        try:
+            out = self.execute(*WRITE_FLAGS, *repair, *args, str(path))
         except MetadataError as exc:
-            raise MetadataError(redact(str(exc), _values(args))) from None
+            raise MetadataError(redact(str(exc), secrets)) from None
         if self.last_warnings:
-            log.info("ExifTool: %s (%s)", redact(self.last_warnings, _values(args)), path)
+            log.info("ExifTool: %s (%s)", redact(self.last_warnings, secrets), path)
         if "1 image files updated" not in out and "1 image files unchanged" not in out:
             raise MetadataError(out.strip() or "ExifTool did not update the file")
+        # Writes that leave the EXIF block as it was (XMP only) neither need nor make the repair.
+        if fix is not None and self.makernote_fix(path) is None:
+            self.last_repair = (
+                "The camera maker notes in this photo had misplaced offsets (left by another "
+                f"program); they were repaired (by {fix:+d} bytes) while saving."
+            )
+            log.warning("Repaired maker-note offsets by %+d while writing %s", fix, path)
         # -P keeps the modification time to the second; restore the exact value.
         try:
             os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
@@ -547,6 +575,9 @@ def restore_plan(meta: PhotoMeta, snap: Snapshot) -> WritePlan:
         else:
             args.append(f"-{tag}={value}")
     return WritePlan(args, tuple(snap))
+
+
+_MAKERNOTE_FIX = re.compile(r"Possibly incorrect maker notes offsets \(fix by (-?\d+)\?\)")
 
 
 def _values(args: Sequence[str]) -> list[str]:

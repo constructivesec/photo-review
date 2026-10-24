@@ -221,7 +221,8 @@ def write(et: md.ExifToolSession, meta: md.PhotoMeta, plan: md.WritePlan) -> Wri
         et.write(meta.path, plan.args)
     except md.MetadataError as exc:
         raise FileOpError(f"Could not save changes to {meta.path.name}: {exc}") from exc
-    return WriteResult(meta.path, snap, plan.notes)
+    notes = [*plan.notes, *([et.last_repair] if et.last_repair else [])]
+    return WriteResult(meta.path, snap, notes)
 
 
 def write_then_move(

@@ -263,6 +263,7 @@ class MainWindow(QMainWindow):
         # Caption row
         cap_row = QHBoxLayout()
         self.caption_edit = QLineEdit()
+        self.caption_edit.setMaxLength(2**31 - 1)  # captions have no limit (default 32767 truncates)
         self.caption_edit.setFont(big)
         self.caption_edit.setAccessibleName("Caption")
         self.save_caption_btn = QPushButton("Save Caption")
@@ -941,11 +942,12 @@ class MainWindow(QMainWindow):
                 return
             finished = m.applied_keep(res.old_path, res.path, res.snapshot, res.meta)
             moved = res.path != res.old_path
-            self.show_status(
+            message = (
                 f"Kept {res.old_path.name}" + (" (moved out of the archive)" if moved else "")
                 if res.snapshot is not None
                 else f"{res.old_path.name} was already kept"
             )
+            self.show_status(" ".join([message, *res.notes]))
             self.show_banner(FINISHED if moved and finished and m.current is not None else None)
             self.show_current()  # same photo in the normal view: the KEEP badge appears
 
@@ -969,7 +971,7 @@ class MainWindow(QMainWindow):
                 self._failed(meta, exc or RuntimeError("ARCHIVE failed"))
                 return
             finished = self.model.applied_archive(res.old_path, res.path, res.snapshot or {})
-            self.show_status(f"Archived {res.old_path.name}")
+            self.show_status(" ".join([f"Archived {res.old_path.name}", *res.notes]))
             self.show_banner(FINISHED if finished and self.model.current is not None else None)
             self.show_current()
 
@@ -1084,7 +1086,7 @@ class MainWindow(QMainWindow):
                 self.show_status(f"Could not undo: {exc}", error=True)
                 return
             self.model.applied_undo(entry, res.path, res.meta)
-            self.show_status(f"Undone: {entry.label} on {res.path.name}")
+            self.show_status(" ".join([f"Undone: {entry.label} on {res.path.name}", *res.notes]))
             self.show_banner(None)
             self.show_current()
 

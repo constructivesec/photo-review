@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import real_samples
-from helpers import assert_only_changed, dump, pixels
+from helpers import assert_only_changed, dump, pixels, shift_makernote_offsets
 from PIL import Image
 
 from photo_review import metadata as md
@@ -421,3 +421,51 @@ def test_owner_slide_scans_are_recognised(et: ExifToolSession) -> None:
         m = read(et, src)
         assert looks_like_scanner(m.get("IFD0:Make") or "", m.get("IFD0:Model") or "")
         assert m.caption_placeholder == "" and m.caption == ""
+
+
+# ---------------------------------------------------------------- broken maker-note offsets
+
+OLYMPUS = Path(__file__).parent / "fixtures" / "exiftool" / "Olympus.jpg"
+
+
+def olympus_tags(et: ExifToolSession, p: Path) -> dict:
+    tags = et.read_json([p], ["Olympus:All"], extra=["-a"])[0]
+    return {k: v for k, v in tags.items() if k != "SourceFile"}
+
+
+def test_intact_maker_notes_are_written_without_repair(et: ExifToolSession, tmp_path: Path) -> None:
+    p = tmp_path / "good.jpg"
+    p.write_bytes(OLYMPUS.read_bytes())
+    assert et.makernote_fix(p) is None
+    apply(et, p, md.plan_caption(read(et, p), "Lake", mirror=True))
+    assert et.last_repair is None
+    assert olympus_tags(et, p) == olympus_tags(et, OLYMPUS)
+
+
+@pytest.mark.parametrize("shift", [304, -304, 2000])
+@pytest.mark.parametrize("action", ["caption", "keep"])
+def test_broken_maker_note_offsets_are_repaired_while_saving(
+    et: ExifToolSession, tmp_path: Path, shift: int, action: str
+) -> None:
+    """Another program moved the EXIF block without fixing the maker notes (owner report:
+    "Bad MakerNotes offset for CameraID"). The save succeeds and the camera values come back."""
+    p = tmp_path / "broken.jpg"
+    shift_makernote_offsets(OLYMPUS, p, shift)
+    assert et.makernote_fix(p) == -shift
+    assert olympus_tags(et, p) != olympus_tags(et, OLYMPUS)
+    before = os.stat(p).st_mtime_ns
+    meta = read(et, p)
+    if action == "keep":  # XMP only: the EXIF block is copied as it is, so nothing changes there
+        broken = olympus_tags(et, p)
+        assert apply(et, p, md.plan_keep(meta)).rating == 1
+        assert et.last_repair is None and olympus_tags(et, p) == broken
+        meta = read(et, p)
+    after = apply(et, p, md.plan_caption(meta, "Lake", mirror=True))
+    assert after.caption == "Lake"
+    assert et.last_repair is not None and f"{-shift:+d}" in et.last_repair
+    assert olympus_tags(et, p) == olympus_tags(et, OLYMPUS)
+    assert pixels(p) == pixels(OLYMPUS)
+    assert os.stat(p).st_mtime_ns == before
+    assert et.makernote_fix(p) is None
+    apply(et, p, md.plan_caption(read(et, p), "Lake 2", mirror=True))
+    assert et.last_repair is None
