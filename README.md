@@ -112,6 +112,10 @@ modification date; on some systems the file's **creation** date may change when 
   photo (maker notes) with broken offsets. The app puts it back the way the camera wrote it while
   saving your change; nothing else in the file changes. If ExifTool cannot tell how to repair it,
   the save fails with ExifTool's message and the file is left untouched.
+- **"damaged entry ... removed while saving"**: part of the photo's EXIF data (for example one GPS
+  item written by an old phone) is unreadable by any program. The app removes just that item while
+  saving, after checking on a temporary copy that nothing else changes. If more would change, the
+  save fails, says what would change, and the file is left untouched.
 
 ## Manual QA checklist (run on Windows and on macOS)
 

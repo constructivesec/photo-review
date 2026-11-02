@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import real_samples
-from helpers import assert_only_changed, dump, pixels, shift_makernote_offsets
+from helpers import assert_only_changed, break_gps_entry, dump, pixels, shift_makernote_offsets
 from PIL import Image
 
 from photo_review import metadata as md
@@ -468,4 +468,73 @@ def test_broken_maker_note_offsets_are_repaired_while_saving(
     assert os.stat(p).st_mtime_ns == before
     assert et.makernote_fix(p) is None
     apply(et, p, md.plan_caption(read(et, p), "Lake 2", mirror=True))
+    assert et.last_repair is None
+
+
+# ---------------------------------------------------------------- damaged EXIF entries
+
+GPS_ARGS = [
+    "-GPSVersionID=2.2.0.0",
+    "-GPSLatitudeRef=N",
+    "-GPSLatitude=43.5",
+    "-GPSLongitudeRef=W",
+    "-GPSLongitude=79.6",
+    "-GPSAltitude=100",
+    "-GPSTimeStamp=15:54:00",
+    "-GPSSatellites=5",
+    "-GPSMeasureMode=2",
+    "-GPSDOP=1.5",
+    "-GPSMapDatum=WGS-84",
+    "-GPSDateStamp=2010:05:30",
+    "-GPSImgDirectionRef=T",
+    "-GPSImgDirection=10",
+]
+
+
+def damaged_gps(et: ExifToolSession, src: Path, dst: Path) -> Path:
+    """A copy of src whose GPS block has an unreadable entry (owner report, 2026-11-02)."""
+    base = dst.with_name("base_" + dst.name)
+    base.write_bytes(src.read_bytes())
+    et.execute("-overwrite_original", "-Make=RIM", "-Model=BlackBerry 9700", *GPS_ARGS, str(base))
+    break_gps_entry(base, dst)
+    return dst
+
+
+@pytest.mark.parametrize("action", ["caption", "date"])
+def test_damaged_exif_entry_is_dropped_while_saving(
+    et: ExifToolSession, fixture: Fixture, tmp_path: Path, action: str
+) -> None:
+    p = damaged_gps(et, fixture("lightroom.jpg"), tmp_path / "IMG00008-20100530-1554.jpg")
+    with pytest.raises(md.MetadataError, match=r"Bad format \(1120\) for GPS entry 11"):
+        et.execute(*md.WRITE_FLAGS, "-IFD0:ImageDescription=x", str(p))  # plain ExifTool refuses
+    before, px, mtime = dump(et, p), pixels(p), os.stat(p).st_mtime_ns
+    meta = read(et, p)
+    if action == "caption":
+        plan = md.plan_caption(meta, "Lake – 2010 😀", mirror=True)
+    else:
+        plan = md.plan_date(meta, "2010:05:30 12:00:00", False, False)
+    after = apply(et, p, plan)
+    assert et.last_repair is not None and "GPS entry 11" in et.last_repair
+    assert after.caption == "Lake – 2010 😀" if action == "caption" else after.date.value.day == 30
+    assert_only_changed(before, dump(et, p), set(plan.tags) | {"ExifTool:Warning"})
+    assert pixels(p) == px and os.stat(p).st_mtime_ns == mtime
+    assert after.gps is not None
+    apply(et, p, md.plan_caption(read(et, p), "Again", mirror=True))
+    assert et.last_repair is None  # the entry is gone; later saves are ordinary
+
+
+def test_damaged_exif_entry_is_not_dropped_if_more_would_change(et: ExifToolSession, tmp_path: Path) -> None:
+    """ExifTool cannot copy this sample's 28-byte thumbnail, so a rebuild would lose it: refuse."""
+    p = damaged_gps(et, OLYMPUS, tmp_path / "olympus_gps.jpg")
+    original = p.read_bytes()
+    with pytest.raises(md.MetadataError, match=r"would also change IFD1:.*left untouched"):
+        et.write(p, md.plan_caption(read(et, p), "Lake", mirror=True).args)
+    assert p.read_bytes() == original
+
+
+def test_damaged_exif_entry_does_not_block_xmp_only_writes(
+    et: ExifToolSession, fixture: Fixture, tmp_path: Path
+) -> None:
+    p = damaged_gps(et, fixture("lightroom.jpg"), tmp_path / "keep.jpg")
+    assert apply(et, p, md.plan_archive(read(et, p))).rating == -1
     assert et.last_repair is None

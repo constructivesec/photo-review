@@ -1,6 +1,6 @@
 # Open Questions
 
-Status: 1 to 29 resolved by the owner on 2026-10-18; 30 awaits confirmation. Answers are recorded under "Decisions";
+Status: 1 to 29 resolved by the owner on 2026-10-18; 30 and 31 await confirmation. Answers are recorded under "Decisions";
 the original questions follow for reference. New ambiguities are added at the end.
 
 ## Decisions
@@ -36,6 +36,7 @@ the original questions follow for reference. New ambiguities are added at the en
 | 28 | Owner request (2026-10-19, changes spec 5.3): KEEP no longer advances. It marks the photo and the KEEP badge appears; the photo stays shown. Exception: KEEP in "Show archived" moves the file out of `_archive`, so the photo leaves that list as before. |
 | 29 | Owner request (2026-10-19, changes spec 7 "unsaved text is discarded on navigation"): typed text is never discarded. Leaving a field group (date = Month/Day/Year/Approximate, caption, tag box) saves it; moving within the date fields does not. Saving one field never blanks another. Next, Back and ARCHIVE (and KEEP in "Show archived") first save every pending group (caption, tags, date; one ExifTool call each); on any error the app stays on the photo and shows the error. Next/Back on the first or last photo still save. A bare quick-add prefix ("person:") is not a pending tag. |
 | 30 | Owner report (2026-10-24): saves failed with "Bad MakerNotes offset" on photos whose camera maker notes were broken by another program. Interpretation: when ExifTool names the exact fix, the save repairs the maker notes in the same call (restoring the camera's original values; pixels unchanged) and the status bar says so; otherwise the save still fails with ExifTool's message. Undo restores the edited fields, not the broken offsets. Owner to confirm (COMPATIBILITY.md finding 15). |
+| 31 | Owner report (2026-11-02): caption saves failed with "Bad format (1120) for GPS entry 11". Interpretation: the save rebuilds the EXIF block without the unreadable entry, but only if a trial on a temporary copy shows nothing else changes; the status bar says so. Otherwise the save fails, names what would change and leaves the file untouched. Undo restores the edited fields, not the removed entry. Owner to confirm (COMPATIBILITY.md finding 16). |
 
 ## Original questions
 
