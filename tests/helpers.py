@@ -71,3 +71,27 @@ def shift_makernote_offsets(src: Path, dst: Path, shift: int) -> None:
         if _TIFF_SIZES.get(u16(e + 2), 1) * u32(e + 4) > 4:  # value stored at an offset
             struct.pack_into(order + "I", data, tiff + e + 8, u32(e + 8) + shift)
     dst.write_bytes(bytes(data))
+
+
+def break_gps_entry(src: Path, dst: Path, entry: int = 11, fmt: int = 1120) -> None:
+    """Copy src to dst with its GPS entries out of sequence and one entry given an invalid format
+    code: what the owner's 2010 phone photo had ("Bad format (1120) for GPS entry 11")."""
+    data = bytearray(src.read_bytes())
+    tiff = data.index(b"Exif\x00\x00") + 6
+    order = "<" if data[tiff : tiff + 2] == b"II" else ">"
+
+    def u16(o: int) -> int:
+        return struct.unpack_from(order + "H", data, tiff + o)[0]
+
+    def u32(o: int) -> int:
+        return struct.unpack_from(order + "I", data, tiff + o)[0]
+
+    ifd0 = u32(4)
+    gps = next(u32(ifd0 + 2 + 12 * i + 8) for i in range(u16(ifd0)) if u16(ifd0 + 2 + 12 * i) == 0x8825)
+    first, second = tiff + gps + 2, tiff + gps + 14
+    data[first : first + 12], data[second : second + 12] = (
+        data[second : second + 12],
+        data[first : first + 12],
+    )
+    struct.pack_into(order + "H", data, tiff + gps + 2 + 12 * entry + 2, fmt)
+    dst.write_bytes(bytes(data))

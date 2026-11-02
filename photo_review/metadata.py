@@ -12,7 +12,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
+import tempfile
 import threading
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -256,13 +258,74 @@ class ExifToolSession:
         found = _MAKERNOTE_FIX.search(out + "\n" + self.last_warnings)
         return int(found.group(1)) if found else None
 
+    def _rebuild_exif(self, path: Path, args: list[str], damage: str, secrets: list[str]) -> str:
+        """Write `args` while rebuilding the EXIF block from its readable tags (byte order and
+        thumbnail kept). The rebuild runs on a temporary copy first; the original is written only
+        if every readable tag other than the edited ones is unchanged there."""
+        order = self.read_json([path], ["File:ExifByteOrder"], numeric=True)[0].get("File:ExifByteOrder")
+        rebuild = [
+            "-EXIF:all=",
+            "-tagsFromFile",
+            "@",
+            "-EXIF:all",
+            "-ThumbnailImage",
+            "-unsafe",
+            *([f"-ExifByteOrder={order}"] if order else []),
+            *args,
+        ]
+        edited = {_assigned_tag(a) for a in args if a.startswith("-") and "=" in a}
+        reencoded_iptc = "-IPTC:all" in args  # legacy Latin-1 IPTC is re-written as UTF-8 too
+        with tempfile.TemporaryDirectory(prefix="photo-review-") as tmp:
+            trial = Path(tmp) / path.name
+            shutil.copy2(path, trial)
+            original = self._comparable(trial)
+            try:
+                self.execute(*WRITE_FLAGS, *rebuild, str(trial))
+            except MetadataError as exc:
+                raise MetadataError(redact(str(exc), secrets)) from None
+            result = self._comparable(trial)
+        changed = sorted(
+            k
+            for k in original
+            if result.get(k) != original[k]
+            and k.split("#")[0] not in edited
+            and not (reencoded_iptc and k.startswith("IPTC:"))
+        )
+        if changed:
+            raise MetadataError(
+                f"ExifTool reports a damaged entry in the photo's EXIF data ({damage}). "
+                "Repairing it would also change "
+                + ", ".join(changed[:5])
+                + (" and more" if len(changed) > 5 else "")
+                + ", so the file was left untouched."
+            )
+        try:
+            out = self.execute(*WRITE_FLAGS, *rebuild, str(path))
+        except MetadataError as exc:
+            raise MetadataError(redact(str(exc), secrets)) from None
+        self.last_repair = (
+            f"The photo's EXIF data had a damaged entry that no program can read ({damage}); "
+            "it was removed while saving. All other information was checked and is unchanged."
+        )
+        log.warning("Rebuilt EXIF without a damaged entry (%s) while writing %s", damage, path)
+        return out
+
+    def _comparable(self, path: Path) -> dict:
+        """Every readable tag (duplicates and unknown tags included) that a rebuild must keep."""
+        tags = self.read_json([path], extra=["-a", "-u"])[0]
+        return {k: v for k, v in tags.items() if not _NOT_COMPARED.match(k) and not _STRUCTURAL.search(k)}
+
     def write(self, path: Path | str, args: Sequence[str]) -> str:
         """Write all assignments to one file in one ExifTool call (-overwrite_original -P).
 
         Camera maker notes whose offsets were broken by another program are repaired in the
         same call when ExifTool names the exact fix (-m -F<offset>); a plain write would either
         be refused or, worse, succeed and make the camera values unrecoverable. `last_repair`
-        then describes the repair."""
+        then describes the repair.
+
+        An EXIF block with an entry no program can read ("Bad format (1120) for GPS entry 11") is
+        refused by ExifTool; it is rebuilt without that entry only if a trial on a temporary copy
+        shows that nothing else changes (see `_rebuild_exif`)."""
         before = os.stat(path)
         self.last_repair = None
         secrets = _values(args)
@@ -271,7 +334,11 @@ class ExifToolSession:
         try:
             out = self.execute(*WRITE_FLAGS, *repair, *args, str(path))
         except MetadataError as exc:
-            raise MetadataError(redact(str(exc), secrets)) from None
+            damaged = _BAD_ENTRY.search(str(exc))
+            if damaged is None:
+                raise MetadataError(redact(str(exc), secrets)) from None
+            out = self._rebuild_exif(Path(path), [*repair, *args], damaged.group(0), secrets)
+            fix = None  # the rebuild re-creates the maker notes; report the rebuild instead
         if self.last_warnings:
             log.info("ExifTool: %s (%s)", redact(self.last_warnings, secrets), path)
         if "1 image files updated" not in out and "1 image files unchanged" not in out:
@@ -575,6 +642,20 @@ def restore_plan(meta: PhotoMeta, snap: Snapshot) -> WritePlan:
         else:
             args.append(f"-{tag}={value}")
     return WritePlan(args, tuple(snap))
+
+
+_BAD_ENTRY = re.compile(r"Bad format \(\d+\) for [\w-]+ entry \d+")
+# Tags that legitimately differ between the trial copy and the original, or describe the layout.
+_NOT_COMPARED = re.compile(
+    r"^(SourceFile|ExifTool:|System:|Composite:|File:(FileSize|CurrentIPTCDigest)$|"
+    r"Photoshop:IPTCDigest$|XMP-x:XMPToolkit$)"
+)
+_STRUCTURAL = re.compile(r"(Offset|Offsets|ByteCounts)$")
+
+
+def _assigned_tag(arg: str) -> str:
+    """ "-IFD0:ImageDescription=x" and "-ExifIFD:DateTimeOriginal#=x" -> the tag name."""
+    return arg[1:].split("=", 1)[0].rstrip("#+-<")
 
 
 _MAKERNOTE_FIX = re.compile(r"Possibly incorrect maker notes offsets \(fix by (-?\d+)\?\)")

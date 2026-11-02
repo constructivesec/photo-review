@@ -81,6 +81,17 @@ modification time preserved.
     the same single write call; the status bar and the log say so. Tested in `tests/test_metadata.py`
     with `tests/fixtures/exiftool/Olympus.jpg`. Maker-note problems without a suggested fix are not
     worked around: the write fails with ExifTool's message, as before.
+16. **EXIF blocks with an unreadable entry (owner report, 2026-11-02).** A 2010 phone photo
+    (`IMG00008-20100530-1554.jpg`) has a GPS block with entries out of order and one entry with an
+    invalid format code: "Bad format (1120) for GPS entry 11". ExifTool reads the rest but refuses any
+    write that rewrites EXIF (caption, date); `-m` does not help. XMP-only writes (KEEP, ARCHIVE) work.
+    Reproduced by breaking a generated GPS block the same way (`tests/helpers.py`). Rebuilding the EXIF
+    block from its readable tags (`-EXIF:all= -tagsFromFile @ -EXIF:all -ThumbnailImage -unsafe`, byte
+    order kept) in the same call drops only the unreadable entry. Measured on the samples, a rebuild is
+    not always lossless (ExifTool's Olympus sample loses its 28-byte thumbnail; a Canon 40D rational
+    is re-rounded), so the app does it only after this error, first on a temporary copy, and writes the
+    original only if every readable tag other than the edited ones is unchanged; otherwise the save
+    fails and names what would change. The status bar and the log say when an entry was removed.
 
 ## 2. Manual checks (spec 17, step 2): PENDING, needs Windows and macOS
 
